@@ -1,0 +1,1007 @@
+\documentclass[11pt]{article}
+\usepackage[margin=2.6cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{problem}[theorem]{Open problem}
+
+\newcommand{\F}{\mathbb{F}}
+\newcommand{\K}{\mathbb{K}}
+\newcommand{\ML}{\mathrm{ML}}
+\newcommand{\Enc}{\mathrm{Enc}}
+\newcommand{\fold}{\mathrm{fold}}
+\newcommand{\dpos}{d_{\mathrm{pos}}}
+\newcommand{\dblk}{d_{\mathrm{blk}}}
+\newcommand{\GL}{\mathrm{GL}}
+\newcommand{\Gs}{\mathcal{G}^{*}}
+\newcommand{\eq}{\mathrm{eq}}
+
+\title{SPARK: Matrix-Gate Folding\\[2pt]
+\large A multilinear polynomial commitment IOP}
+\author{Abdelali Mkhida \\ Algorizk}
+\date{October 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We construct a family of linear codes for multilinear polynomials from $\GL_2$ gate matrices
+attached to the nodes of a binary tree, a folding operator that is exactly the gate rule
+evaluated at a random point, and a commitment scheme in which the folding challenges are the
+opening point. The construction uses no structured evaluation domain: gates are arbitrary
+elements of $\GL_2(\F)$ with nonzero second row, and the encoder uses only operations of the
+form $u+t\,v$. We prove the algebraic identities; three distance theorems for randomly sampled per-node gates
+(a one-layer bound, a rank-saturation bound, and a bound with a checked setup); that the generic
+code is MDS; a zero decomposition and an obstruction showing what any sharper distance bound must
+pay; a proximity lemma and an agreement lemma for the folding operator; and soundness of the
+commitment with a per-query detection rate of $\min(1-(1-\Delta)^{1/3},\Delta/2)$, with no loss
+in the number of variables. The construction works over any field large enough for the distance
+bounds; gates may be sampled in an extension field. A Rust implementation accompanies this
+document.
+\end{abstract}
+
+\tableofcontents
+
+%=====================================================================
+\section{Notation}
+%=====================================================================
+
+\begin{itemize}[leftmargin=*]
+\item $\F$ is a finite field with $q=|\F|$ and $\operatorname{char}\F\neq 2$; $\K\supseteq\F$ is an
+extension field used for verifier challenges.
+\item $\ML(x_j,\dots,x_n)$ denotes multilinear polynomials in the listed variables;
+$\ML_i$ denotes multilinear polynomials in $i$ variables.
+\item $k\ge 0$ is the \emph{redundancy parameter}. For $0\le i\le n$ put
+\[
+\Omega_i=\{0,1\}^k\times\{0,1\}^{i},\qquad L_i=|\Omega_i|=2^{k+i},
+\]
+and identify $\Omega_i=\Omega_{i-1}\times\{0,1\}$, writing $\omega=(\omega',b)$.
+\item A position $\omega\in\Omega_n$ is written $\omega=(\beta,\theta_n,\theta_{n-1},\dots,\theta_1)$
+with $\beta\in\{0,1\}^k$, and its prefixes are
+$\omega^{(j)}=(\beta,\theta_n,\dots,\theta_{j+1})\in\Omega_{n-j}$ for $0\le j\le n$.
+\item For $w,w'\in\K^{\Omega_i}$:
+$\dpos(w,w')=L_i^{-1}\,|\{\omega:w(\omega)\neq w'(\omega)\}|$, and for $i\ge1$ the
+\emph{block distance}
+\[
+\dblk(w,w')=L_{i-1}^{-1}\,\bigl|\{\omega'\in\Omega_{i-1}:\ (w(\omega',0),w(\omega',1))\neq(w'(\omega',0),w'(\omega',1))\}\bigr|.
+\]
+Always $\dpos\le\dblk\le 2\dpos$. Distances to a set are minima.
+For a linear code $C$, $\Delta(C)$ is its minimum relative distance.
+\end{itemize}
+
+%=====================================================================
+\section{Gates}
+%=====================================================================
+
+\begin{definition}[Gate]
+A \emph{gate} is a matrix
+$A=\begin{pmatrix}a&b\\c&d\end{pmatrix}\in\GL_2(\F)$ with $c\neq0$, $d\neq0$.
+Write $\delta=ad-bc$ and $\Gs=\{A\in\GL_2(\F):c\neq0,\ d\neq0\}$.
+Its \emph{gate weights} are $W_L(x)=a+cx$ and $W_R(x)=b+dx$, and its \emph{structural points} are
+\[
+t^0=-\frac{a}{c},\qquad t^1=-\frac{b}{d}.
+\]
+\end{definition}
+
+\begin{lemma}[Gates are point pairs with scales]\label{lem:gate-param}
+The map $(c,d,t^0,t^1)\mapsto\begin{pmatrix}-t^0c&-t^1d\\c&d\end{pmatrix}$ is a bijection from
+$(\F^\times)^2\times\{(t^0,t^1)\in\F^2:t^0\neq t^1\}$ onto $\Gs$, and
+$\delta=cd\,(t^1-t^0)$. In particular, if $A$ is uniform on $\Gs$ then $(t^0,t^1)$ is uniform on
+pairs of distinct elements.
+\end{lemma}
+\begin{proof}
+With $a=-t^0c$, $b=-t^1d$ one gets $ad-bc=-t^0cd+t^1cd=cd(t^1-t^0)$, nonzero iff $t^0\neq t^1$.
+The inverse map is $A\mapsto(c,d,-a/c,-b/d)$. The fibre over each $(t^0,t^1)$ has size $(q-1)^2$.
+\end{proof}
+
+\begin{lemma}[Decomposition and collapse]\label{lem:collapse}
+Let $A\in\Gs$ and let $F=u+x\,v$ with $u,v$ independent of $x$. There are unique $F_L,F_R$
+independent of $x$ with
+\[
+F=W_L(x)\,F_L+W_R(x)\,F_R,\qquad F_L=\delta^{-1}(du-bv),\quad F_R=\delta^{-1}(-cu+av).
+\]
+Moreover
+\[
+F\big|_{x=t^0}=\gamma^0F_R,\quad \gamma^0=-\frac{\delta}{c},\qquad\qquad
+F\big|_{x=t^1}=\gamma^1F_L,\quad \gamma^1=+\frac{\delta}{d}.
+\]
+\end{lemma}
+\begin{proof}
+$W_LF_L+W_RF_R=(aF_L+bF_R)+x(cF_L+dF_R)$, so the identity is $A\binom{F_L}{F_R}=\binom{u}{v}$,
+uniquely solvable since $\delta\neq0$. At $x=t^0$: $W_L(t^0)=0$ and
+$W_R(t^0)=b-ad/c=-\delta/c$. At $x=t^1$: $W_R(t^1)=0$ and $W_L(t^1)=a-bc/d=\delta/d$.
+\end{proof}
+
+\begin{lemma}[Gate rule at an arbitrary point]\label{lem:gate-rule}
+In the setting of Lemma~\ref{lem:collapse}, put $w^0=F|_{x=t^0}$ and $w^1=F|_{x=t^1}$. For every $z$,
+\[
+F\big|_{x=z}=W_L(z)\,\frac{d}{\delta}\,w^1-W_R(z)\,\frac{c}{\delta}\,w^0
+= w^0+\frac{z-t^0}{t^1-t^0}\,(w^1-w^0).
+\]
+\end{lemma}
+\begin{proof}
+By Lemma~\ref{lem:collapse}, $F_L=(d/\delta)w^1$ and $F_R=-(c/\delta)w^0$; substitute into
+$F=W_LF_L+W_RF_R$ at $x=z$. The second expression is the unique affine function of $z$ taking the
+values $w^0,w^1$ at $t^0,t^1$.
+\end{proof}
+
+\begin{lemma}[One-layer sum rule]\label{lem:sumrule}
+If $F=W_L(x)F_L+W_R(x)F_R$ then
+$\sum_{x\in\{0,1\}}F=(2a+c)\,F_L+(2b+d)\,F_R$.
+\end{lemma}
+\begin{proof}
+$\sum_{x\in\{0,1\}}(a+cx)=2a+c$ and $\sum_{x\in\{0,1\}}(b+dx)=2b+d$.
+\end{proof}
+
+%=====================================================================
+\section{The gate code}\label{sec:code}
+%=====================================================================
+
+\begin{definition}[Gate family]
+A \emph{gate family} is a collection
+$\mathcal{A}=\bigl(A_j(\omega')\bigr)_{1\le j\le n,\ \omega'\in\Omega_{n-j}}$ of gates, one per
+variable $x_j$ and per node $\omega'\in\Omega_{n-j}$. Write $t_j^b(\omega')$ for the structural
+points of $A_j(\omega')$. The family is \emph{per-layer} if $A_j(\omega')$ does not depend on
+$\omega'$, and \emph{per-node} otherwise.
+\end{definition}
+
+\begin{definition}[Encoding]\label{def:enc}
+For $0\le i\le n$ let $C_i$ encode $\ML(x_{n-i+1},\dots,x_n)$ as follows.
+\[
+\Enc_0(c)(\beta)=c\quad(\beta\in\{0,1\}^k),
+\]
+and for $i\ge1$, writing $j=n-i+1$ and $F=u+x_j\,v$ with $u,v\in\ML(x_{j+1},\dots,x_n)$,
+\[
+\Enc_i(F)(\omega',b)=\Enc_{i-1}(u)(\omega')+t_j^b(\omega')\,\Enc_{i-1}(v)(\omega'),
+\qquad \omega'\in\Omega_{i-1},\ b\in\{0,1\}.
+\]
+Put $C_i=\Enc_i(\ML(x_{n-i+1},\dots,x_n))\subseteq\F^{\Omega_i}$.
+\end{definition}
+
+\begin{proposition}[Closed form]\label{prop:closed}
+For $F\in\ML(x_1,\dots,x_n)$ and $\omega=(\beta,\theta_n,\dots,\theta_1)\in\Omega_n$,
+\[
+\Enc_n(F)(\omega)=F\bigl(r(\omega)\bigr),\qquad r_j(\omega)=t_j^{\theta_j}\bigl(\omega^{(j)}\bigr).
+\]
+The coordinate $r_j(\omega)$ depends only on $(\beta,\theta_n,\dots,\theta_j)$. Hence two positions
+that differ only in $\theta_j$ have points differing only in the coordinate $x_j$.
+\end{proposition}
+\begin{proof}
+Induction on $n$. For $F=u+x_1v$, $\Enc_n(F)(\omega^{(1)},\theta_1)=u(r_{\ge2})+t_1^{\theta_1}(\omega^{(1)})\,v(r_{\ge2})=F(r(\omega))$,
+where $r_{\ge2}$ is the point attached to $\omega^{(1)}$ by the induction hypothesis.
+\end{proof}
+
+\begin{remark}[Relation to the bottom table]
+By Lemma~\ref{lem:collapse}, the bottom table $T_0$ of the original symbolic folding protocol satisfies
+$T_0[\theta]=\Gamma(\theta)^{-1}F(r(\theta))$ with a public nonzero $\Gamma(\theta)$. So $T_0$ is
+$\Enc_n(F)$ for $k=0$ and a per-layer family, up to a public diagonal scaling, which preserves all
+distances. Propositions~\ref{prop:perlayer} and~\ref{prop:rate1} explain why that table alone
+cannot support spot-checks.
+\end{remark}
+
+\begin{proposition}[Encoding cost]\label{prop:cost}
+$\Enc_n(F)$ is computed with at most $(n+1)\,2^{n+k}$ multiplications and as many additions in $\F$.
+\end{proposition}
+\begin{proof}
+With $T(i)$ the cost for $i$ variables, $T(i)=2T(i-1)+L_i$ and $T(0)=L_0=2^k$, so
+$T(n)=(n+1)2^{n+k}$.
+\end{proof}
+
+\begin{lemma}[Extension of scalars]\label{lem:ext}
+For a linear code $C\subseteq\F^N$, the code $C\otimes\K\subseteq\K^N$ has $\Delta(C\otimes\K)=\Delta(C)$.
+\end{lemma}
+\begin{proof}
+Fix an $\F$-basis $(e_l)$ of $\K$. A word of $C\otimes\K$ is $\sum_le_lc_l$ with $c_l\in C$. At a
+position $p$, $\sum_le_lc_l(p)=0$ iff all $c_l(p)=0$, so the support is $\bigcup_l\operatorname{supp}c_l$.
+\end{proof}
+
+\begin{proposition}[Per-layer families have distance $2^{-n}$]\label{prop:perlayer}
+If $\mathcal{A}$ is per-layer, then $\Delta(C_n)\le 2^{-n}$.
+\end{proposition}
+\begin{proof}
+All points $r(\omega)$ lie in the grid $\prod_j\{t_j^0,t_j^1\}$, each grid point appearing $2^k$
+times. $F=\prod_{j=1}^n(x_j-t_j^0)$ is nonzero exactly at the grid point
+$(t_1^1,\dots,t_n^1)$, so $\operatorname{wt}(\Enc_n(F))=2^k$, of relative weight $2^{-n}$.
+\end{proof}
+
+\begin{proposition}[No redundancy, no testing]\label{prop:rate1}
+If $k=0$ and $\Delta(C_n)>0$, then $C_n=\F^{\Omega_n}$. Every table is then a codeword, and
+$\Delta(C_n)=2^{-n}$.
+\end{proposition}
+\begin{proof}
+$\Enc_n$ is injective and $\dim C_n=2^n=L_n$.
+\end{proof}
+
+\subsection{Distance of per-node random families}
+
+\begin{lemma}[One-layer distance]\label{lem:layer}
+Let $C\subseteq\F^{N}$ be linear with $\dim C=D$ and $\Delta(C)\ge\Delta$. Let
+$(t^0_p,t^1_p)_{p\le N}$ be independent, each uniform on pairs of distinct elements of $\F$, and
+\[
+C'=\bigl\{(c_u+t^0\circ c_v,\ c_u+t^1\circ c_v)\ :\ c_u,c_v\in C\bigr\}\subseteq\F^{2N},
+\]
+with coordinates paired as $(p,0),(p,1)$. For every integer $s\ge0$,
+\[
+\Pr\Bigl[\Delta(C')<\Delta-\tfrac{s}{2N}\ \text{ or }\ \dim C'<2D\Bigr]\ \le\ q^{2D}\binom{N}{s}\Bigl(\frac{2}{q}\Bigr)^{s}.
+\]
+\end{lemma}
+\begin{proof}
+Fix $(c_u,c_v)\neq(0,0)$ and let $w$ be the corresponding word of $C'$.
+
+If $c_v=0$, then $w=(c_u,c_u)$ and $\operatorname{wt}(w)=2\operatorname{wt}(c_u)\ge2\Delta N$.
+
+If $c_v\neq0$, consider $p\in\operatorname{supp}c_v$. The pair
+$(c_u(p)+t^0_pc_v(p),\ c_u(p)+t^1_pc_v(p))$ has at most one zero, since $t^0_p\neq t^1_p$.
+It has a zero iff $\alpha_p:=-c_u(p)/c_v(p)\in\{t^0_p,t^1_p\}$, an event of probability exactly
+$2/q$, independently over $p$. Let $Z$ be the set of such $p$. Then
+$\operatorname{wt}(w)\ge 2\operatorname{wt}(c_v)-|Z|\ge2\Delta N-|Z|$, and
+$\Pr[|Z|\ge s]\le\binom{N}{s}(2/q)^s$.
+
+A union bound over the $q^{2D}$ pairs gives: outside the stated event every nonzero pair has
+relative weight $\ge\Delta-s/(2N)>0$ (when this is positive), which also gives injectivity, hence $\dim C'=2D$.
+\end{proof}
+
+\begin{theorem}[Distance of the gate code]\label{thm:distance}
+Let $\mathcal{A}$ be a per-node family with independent gates, each uniform on $\Gs$. For integers
+$s_1,\dots,s_n\ge0$, with probability at least
+\[
+1-\sum_{i=1}^{n}q^{2^{i}}\binom{L_{i-1}}{s_i}\Bigl(\frac{2}{q}\Bigr)^{s_i},
+\]
+every $C_i$ $(0\le i\le n)$ has dimension $2^i$ and
+\[
+\Delta(C_i)\ \ge\ \Delta^{*}:=1-\sum_{l=1}^{n}\frac{s_l}{2L_{l-1}}.
+\]
+\end{theorem}
+\begin{proof}
+$C_0$ is the repetition code, with $\Delta(C_0)=1$ and dimension $1$. Definition~\ref{def:enc}
+builds $C_i$ from $C_{i-1}$ exactly as $C'$ from $C$ in Lemma~\ref{lem:layer}, with
+$N=L_{i-1}$, $D=2^{i-1}$ and fresh structural points (uniform distinct pairs by
+Lemma~\ref{lem:gate-param}). Apply Lemma~\ref{lem:layer} at each level and take a union bound.
+\end{proof}
+
+\begin{remark}[Parameters]
+Using $\binom{N}{s}\le(eN/s)^s$, Table~\ref{tab:bound} lists the smallest certified $\Delta^{*}$
+with setup failure probability $\le2^{-128}$. Sample gates in the base field $\F$. By
+Lemma~\ref{lem:ext}, the distance carries over to $\K$.
+\end{remark}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{rrrr}
+\toprule
+$\log_2q$ & $n$ & $k$ & certified $\Delta^{*}$\\
+\midrule
+31 & 16 & 5 & 0.212\\
+31 & 16 & 6 & 0.589\\
+31 & 20 & 6 & 0.508\\
+31 & 24 & 6 & 0.427\\
+62 & 20 & 6 & 0.604\\
+124 & 20 & 5 & 0.287\\
+124 & 20 & 6 & 0.640\\
+\bottomrule
+\end{tabular}
+\caption{Certified distance (Theorem~\ref{thm:distance}), setup failure $\le 2^{-128}$.
+For $k\le4$ the certificate is vacuous at these $n$.}\label{tab:bound}
+\end{table}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{rrrrrrr}
+\toprule
+$q$ & $n$ & $k$ & length & per-node min & per-node mean & per-layer\\
+\midrule
+13 & 2 & 3 & 32 & 0.563 & 0.625 & 0.250\\
+61 & 2 & 3 & 32 & 0.781 & 0.797 & --\\
+7 & 3 & 2 & 32 & 0.250 & 0.339 & 0.125\\
+7 & 3 & 3 & 64 & 0.375 & 0.412 & 0.125\\
+3 & 4 & 2 & 64 & 0.078 & 0.096 & 0.0625\\
+\bottomrule
+\end{tabular}
+\caption{Exhaustive minimum relative distance over random families (6 samples, 4 for $q=61$).
+Per-layer families sit exactly at $2^{-n}$ (Proposition~\ref{prop:perlayer}). Per-node
+distance grows with $q$, as Lemma~\ref{lem:layer} predicts ($2/q$ collision rate).}
+\label{tab:exp}
+\end{table}
+
+\subsection{Distance by rank saturation}
+
+Theorem~\ref{thm:distance} loses about $2^{-k}$ per level. The argument below loses only about
+$H_2(2^{-k})/\log_2q$ per level, so large fields allow small redundancy.
+
+For a set $X$ of positions of $C_i$ write $V_X=\{F:\Enc_i(F)|_X=0\}$ and $d_i(X)=\dim V_X$.
+
+\begin{lemma}[Augmentation]\label{lem:augment}
+Let $C=\Enc(\ML)$ be injective and let $Z\ge1$. If $V_S=0$ for every $S$ with $|S|\ge Z$, then
+$d(X)\le\max(0,Z-|X|)$ for every $X$.
+\end{lemma}
+\begin{proof}
+Suppose $d(X)=d\ge1$. Since $\Enc$ is injective, some element of $V_X$ is nonzero at some
+position $\omega$, and $d(X\cup\{\omega\})=d-1$. Repeating $d-1$ times gives $Y$ with $|Y|=d-1$
+and $V_{X\cup Y}\neq0$. Hence $|X|+d-1<Z$.
+\end{proof}
+
+\begin{lemma}[One level]\label{lem:onelevel}
+Fix the gates of $C_{i-1}$, and assume $d_{i-1}(X)\le\max(0,Z'-|X|)$ for all $X$. Let
+$S\subseteq\Omega_i$ with $|S|\ge2Z'$. Over the level-$i$ gates,
+\[
+\Pr\bigl[V_S\neq0\bigr]\ \le\ \frac{(1+1/q)^{L_{i-1}}}{q-1}\;q^{\,2Z'-|S|}.
+\]
+\end{lemma}
+\begin{proof}
+Let $T_2$ be the blocks with both entries in $S$ and $T_1$ the blocks with exactly one, say
+$(\omega',b_{\omega'})$; then $|S|=2|T_2|+|T_1|$. Write $F=u+xv$ and $U=V_{T_2}$ (level $i-1$),
+and put $\hat u=\Enc_{i-1}(u)$, $\hat v=\Enc_{i-1}(v)$.
+
+\emph{Constraints.} $F\in V_S$ iff:
+\begin{itemize}[leftmargin=*]
+\item $u,v\in U$: on a double block, $\hat u+t^0\hat v=\hat u+t^1\hat v=0$ with $t^0\neq t^1$ forces
+$\hat u=\hat v=0$;
+\item for every $\omega'\in T_1$: $\hat u(\omega')+t\,\hat v(\omega')=0$, where
+$t=t^{b_{\omega'}}(\omega')$ is uniform on $\F$ and independent across blocks.
+\end{itemize}
+For fixed $(u,v)$, the constraint at $\omega'\in T_1$ holds with probability $1/q$ if
+$\hat v(\omega')\neq0$, and with probability $[\hat u(\omega')=0]$ if $\hat v(\omega')=0$.
+
+\emph{Counting.} $V_S$ is a subspace, so $\Pr[V_S\neq0]\le\mathbb{E}[\#(V_S\setminus0)]/(q-1)$.
+\begin{itemize}[leftmargin=*]
+\item Pairs with $v=0$ contribute $q^{d_{i-1}(T_2\cup T_1)}-1$. This is $0$, because
+$|T_2|+|T_1|\ge|S|/2\ge Z'$.
+\item For $v\neq0$, let $N(v)=\{\omega'\in T_1:\hat v(\omega')=0\}$. Summing over $u$ gives the weight
+$q^{|N(v)|-|T_1|}\,q^{d_{i-1}(T_2\cup N(v))}$.
+\item Group the $v\neq0$ by $N=N(v)$. They lie in $V_{T_2\cup N}\setminus0$, which is nonempty only
+if $d_{i-1}(T_2\cup N)\ge1$, i.e.\ $|T_2|+|N|<Z'$. Then $d_{i-1}(T_2\cup N)\le Z'-|T_2|-|N|$.
+\end{itemize}
+Hence
+\[
+\mathbb{E}[\#(V_S\setminus0)]\le\sum_{N\subseteq T_1}q^{\,|N|-|T_1|+2(Z'-|T_2|-|N|)}
+=q^{\,2Z'-|S|}\sum_{N\subseteq T_1}q^{-|N|}=q^{\,2Z'-|S|}(1+1/q)^{|T_1|}.\qedhere
+\]
+\end{proof}
+
+\begin{theorem}[Distance by rank saturation]\label{thm:distance2}
+Let the gates be independent and uniform on $\Gs(\F)$. Choose integers $g_1,\dots,g_n\ge0$, put
+$Z_0=1$ and $Z_i=2Z_{i-1}+g_i$, and assume $Z_i\le L_i$. With probability at least
+\[
+1-\sum_{i=1}^{n}\binom{L_i}{Z_i}\frac{(1+1/q)^{L_{i-1}}}{q-1}\,q^{-g_i},
+\]
+every nonzero codeword of every $C_i$ has fewer than $Z_i$ zeros. In particular
+$\Delta(C_i)\ge1-(Z_i-1)/L_i$, and $\min_i\Delta(C_i)\ge1-(Z_n-1)/L_n$.
+\end{theorem}
+\begin{proof}
+Induction on $i$.
+\begin{itemize}[leftmargin=*]
+\item \emph{Base.} $C_0$ is the repetition code, so $V_S=0$ for every nonempty $S$, i.e.\ $Z_0=1$.
+\item \emph{Step.} Assume the statement for $C_{i-1}$. Then $\Enc_{i-1}$ is injective (because
+$Z_{i-1}\le L_{i-1}$), and Lemma~\ref{lem:augment} gives $d_{i-1}(X)\le\max(0,Z_{i-1}-|X|)$ for all $X$.
+\item \emph{Union bound.} By Lemma~\ref{lem:onelevel} with $Z'=Z_{i-1}$, each $S$ with $|S|=Z_i$
+satisfies $V_S\neq0$ with probability at most $\frac{(1+1/q)^{L_{i-1}}}{q-1}q^{-g_i}$. A union bound
+over the $\binom{L_i}{Z_i}$ such sets, together with monotonicity in $S$, gives $V_S=0$ for all
+$|S|\ge Z_i$.
+\end{itemize}
+The excess $(Z_i-D_i)/L_i$ is nondecreasing in $i$ and $1/L_i$ decreases, so $C_n$ attains the
+minimum.
+\end{proof}
+
+\begin{remark}[Size of the loss]
+Writing $Z_i=D_i+e_i$ gives $e_i=2e_{i-1}+g_i$, so $e_i/L_i=e_{i-1}/L_{i-1}+g_i/L_i$. The union bound
+needs $g_i\log_2q\gtrsim L_iH_2(Z_i/L_i)+\lambda$. So the relative loss per level is about
+$H_2(2^{-k})/\log_2q$, plus $\lambda/(L_i\log_2q)$ on the first few levels. Gates may be sampled in an
+extension $\F'\supseteq\F$, at the cost of storing $E_0$ in $\F'$.
+\end{remark}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrrr}
+\toprule
+gate field & $n$ & copies & $\Delta$ (Thm.~\ref{thm:distance2}) & queries & $\Delta$ (Thm.~\ref{thm:distance})\\
+\midrule
+Goldilocks ($2^{64}$) & 20 & 16 & 0.579 & 327 & $<0$\\
+Goldilocks ($2^{64}$) & 20 & 32 & 0.729 & 218 & 0.221\\
+Goldilocks ($2^{64}$) & 20 & 64 & 0.811 & 183 & 0.605\\
+Goldilocks$^3$ ($2^{192}$) & 20 & 4 & 0.675 & 253 & $<0$\\
+Goldilocks$^3$ ($2^{192}$) & 20 & 8 & 0.812 & 183 & $<0$\\
+M31 ($2^{31}$) & 20 & 64 & 0.417 & 523 & 0.508\\
+\bottomrule
+\end{tabular}
+\caption{Certified distance with setup failure $\le2^{-128}$, and the resulting queries for
+$2^{-128}$ soundness (Theorem~\ref{thm:sound}, $\delta=0.95\,\delta_{\max}$). Both theorems are
+valid, so the larger value applies.}
+\label{tab:distance2}
+\end{table}
+
+\begin{theorem}[The generic code is MDS]\label{thm:generic}
+Regard the structural points $t^b_i(\omega')$ as independent indeterminates, and work over the
+field of rational functions in them. Then every set of at most $D_i$ coordinate functionals of
+$C_i$ is linearly independent; equivalently, the coordinate matroid of $C_i$ is uniform of rank
+$D_i$, and the generic code $C_n$ is MDS.
+\end{theorem}
+\begin{proof}
+Induction on $i$. For $i=0$ every coordinate functional is $c\mapsto c\neq0$.
+
+\emph{Step.} Identify $\ML_i$ with $\ML_{i-1}^2$ via $F=u+xv$. Position $(\omega',b)$ has functional
+$(\ell_{\omega'},\,t^b\ell_{\omega'})$, where $\ell_{\omega'}$ is the coordinate functional of $C_{i-1}$
+at $\omega'$. Let $S$ be a set of positions with $|S|\le 2D'$, $D'=D_{i-1}$. Let $A$ be its double
+blocks and $B$ its single blocks, with $a=|A|$ and $b=|B|$, so $2a+b\le2D'$.
+
+\emph{Double blocks.} Since $t^1-t^0\neq0$, the two rows of a double block span
+$(\ell_{\omega'},0)$ and $(0,\ell_{\omega'})$. By induction the $\ell_{\omega'}$, $\omega'\in A$, are
+independent, because $a\le D'$. So the double blocks contribute rank $2a$ and span $U\oplus U$,
+with $U=\operatorname{span}\{\ell_{\omega'}:\omega'\in A\}$.
+
+\emph{Quotient.} Pass to $W=\ML_{i-1}^*/U$, of dimension $m=D'-a$, and write
+$\bar\ell_{\omega'}$ for the images. By induction, any at most $m$ of the $\bar\ell_{\omega'}$,
+$\omega'\in B$, are independent: if $|T|\le m$ then $|A\cup T|\le D'$.
+
+\emph{Single blocks.} Since $b\le2m$, split $B=B_0\sqcup B_1$ with $|B_0|,|B_1|\le m$. Choose
+coordinates $J_0$ and $J_1$ of $W$ with $|J_r|=|B_r|$ such that the minors $\det M_{B_0}$ and
+$\det M_{B_1}$ of $\{\bar\ell_{\omega'}\}$ are nonzero.
+
+Consider the $b\times b$ minor of the vectors $(\bar\ell_{\omega'},t_{\omega'}\bar\ell_{\omega'})$ on
+the columns $J_0$ (first copy of $W$) and $J_1$ (second copy). By the Laplace expansion along the
+column split $(J_0,J_1)$, the monomial $\prod_{\omega'\in B_1}t_{\omega'}$ comes only from the term
+that puts the rows $B_1$ on $J_1$. Its coefficient is $\pm\det M_{B_0}\det M_{B_1}\neq0$, and it
+does not involve the level-$i$ variables. So the minor is nonzero and the $b$ vectors are
+independent modulo $U\oplus U$.
+
+The total rank is $2a+b=|S|$.
+\end{proof}
+
+\begin{corollary}[Very large fields]\label{cor:generic}
+If $q-1\ge2^{\lambda}\,nD\binom{L}{D}$ (with $D=D_n$, $L=L_n$), then with probability at least
+$1-2^{-\lambda}$ over uniform gates, $C_n$ is MDS: $\Delta(C_n)=1-(D-1)/L$.
+\end{corollary}
+\begin{proof}
+Parametrise each pair as $(t^0,t^1)=(a,a+s)$ with $(a,s)\in\F\times\F^\times$. This is a
+bijection onto distinct pairs, and an invertible linear change of variables.
+
+For $|S|=D$, Theorem~\ref{thm:generic} makes $\det M_S$ a nonzero polynomial. Each entry of $M_S$
+is a product of at most $n$ structural points, so $\deg\det M_S\le nD$. Schwartz--Zippel over
+$\F\times\F^\times$ gives $\Pr[\det M_S=0]\le nD/(q-1)$. Take a union bound over the
+$\binom{L}{D}$ sets.
+\end{proof}
+
+\begin{remark}
+Corollary~\ref{cor:generic} needs $\log_2q\gtrsim L\,H_2(R)$, so it is structural rather than
+practical. It shows that the level count in Theorem~\ref{thm:distance2} is not forced by the
+construction. Over Goldilocks with random gates, every $D$-subset was checked to be nonsingular
+for $(n,k)\in\{(2,1),(2,2),(2,3),(3,1),(3,2)\}$ (about $1.06\cdot10^{7}$ subsets).
+
+A per-set bound cannot close the gap: for $|S|=D+1$ the measured
+$\Pr[\operatorname{rank}M_S<D]$ is about $1.5/q$, not about $q^{-2}$, because a single
+coincidence of gate points makes many sets degenerate at once.
+\end{remark}
+
+\subsection{Checked setup}
+
+The losses of Theorem~\ref{thm:distance2} at the first levels come from short codes, where a union
+bound is expensive. These levels are small enough to be verified once, at setup.
+
+\begin{theorem}[Distance with a checked setup]\label{thm:checked}
+Fix $i_0\ge0$. Sample the gates of levels $\le i_0$ (variables $x_n,\dots,x_{n-i_0+1}$) and resample
+them until $C_{i_0}$ is MDS. Sample the gates of levels $>i_0$ independently and uniformly on $\Gs(\F)$.
+Choose $g_{i_0+1},\dots,g_n\ge0$, put $Z_{i_0}=D_{i_0}$ and $Z_i=2Z_{i-1}+g_i$, and assume $Z_i\le L_i$.
+With probability at least
+\[
+1-\sum_{i=i_0+1}^{n}\binom{L_i}{Z_i}\frac{(1+1/q)^{L_{i-1}}}{q-1}\,q^{-g_i},
+\]
+every nonzero codeword of $C_n$ has fewer than $Z_n$ zeros, so $\Delta(C_n)\ge1-(Z_n-1)/L_n$.
+\end{theorem}
+\begin{proof}
+$C_{i_0}$ is MDS, so every nonzero codeword of $C_{i_0}$ has at most $D_{i_0}-1$ zeros: $V_S=0$
+whenever $|S|\ge Z_{i_0}$. The acceptance test depends only on the gates of levels $\le i_0$, so the
+gates of levels $>i_0$ are still independent and uniform after conditioning on acceptance. Run the
+induction of Theorem~\ref{thm:distance2} from $i=i_0+1$.
+\end{proof}
+
+\begin{remark}[Cost of the check]
+$C_1$ is MDS iff the $2^{k+1}$ points of the level-$1$ gates are pairwise distinct. $C_2$ is MDS iff
+every $4$-subset of its $2^{k+2}$ positions gives a nonsingular $4\times4$ matrix with rows
+$(1,y_1,y_2,y_1y_2)$. By Theorem~\ref{thm:generic} and Schwartz--Zippel, a uniform family is
+rejected with probability at most $\binom{L_{i_0}}{D_{i_0}}\,i_0D_{i_0}/(q-1)$, which is negligible for
+$i_0\le2$ at $q\approx2^{64}$. The check is done once; the verifier only recomputes the gates from
+the public seed and the accepted counter.
+\end{remark}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrrr}
+\toprule
+gate field & copies & $i_0=0$ & $i_0=1$ & $i_0=2$ & $i_0=3$\\
+\midrule
+M31 ($2^{31}$) & 64 & 0.417 & 0.527 & 0.617 & 0.683\\
+Goldilocks ($2^{64}$) & 16 & 0.579 & 0.669 & 0.742 & 0.768\\
+Goldilocks ($2^{64}$) & 32 & 0.729 & 0.789 & 0.822 & 0.854\\
+Goldilocks ($2^{64}$) & 64 & 0.811 & 0.865 & 0.888 & 0.905\\
+\bottomrule
+\end{tabular}
+\caption{Certified $\Delta(C_n)$ from Theorem~\ref{thm:checked}, $n=20$, setup failure $\le2^{-128}$.
+The column $i_0=0$ is Theorem~\ref{thm:distance2}.}
+\label{tab:checked}
+\end{table}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{rrrrr}
+\toprule
+$\log_2 q$ (gate field) & copies & $\Delta$ & $1-R$ & queries\\
+\midrule
+64 & 16 & 0.742 & 0.938 & 210\\
+64 & 32 & 0.822 & 0.969 & 180\\
+128 & 8 & 0.757 & 0.875 & 201\\
+128 & 16 & 0.863 & 0.938 & 169\\
+256 & 8 & 0.836 & 0.875 & 176\\
+256 & 16 & 0.913 & 0.938 & 157\\
+\bottomrule
+\end{tabular}
+\caption{Gates in a larger field (e.g.\ an extension of the coefficient field), $i_0=2$, $n=20$,
+$\lambda=128$. Queries for $2^{-128}$ soundness by Theorem~\ref{thm:sound} with
+$\delta=0.95\,\delta_{\max}$. A larger gate field reduces the number of copies; the number of queries
+is bounded below by the radius $\delta<\Delta/2$ of Lemma~\ref{lem:agree}.}
+\label{tab:extgates}
+\end{table}
+
+\subsection{Zero structure}
+
+For $F\in\ML(x_1,\dots,x_n)$ and a prefix $c=(\beta,\theta_n,\dots,\theta_{n-i+1})\in\Omega_i$, let
+$F_c\in\ML(x_1,\dots,x_{n-i})$ be $F$ with $x_l$ replaced by $r_l(c)$ for $l>n-i$
+(Proposition~\ref{prop:closed}). The prefix $c$ is \emph{killed} if $F_c=0$, and \emph{maximally
+killed} if moreover its parent is not killed.
+
+\begin{lemma}[Zero decomposition]\label{lem:zerodec}
+Let $F\neq0$ and let $\kappa_i(F)$ be the number of maximally killed prefixes in $\Omega_i$. The
+zero set of $\Enc_n(F)$ is the disjoint union of the subtrees below the maximally killed prefixes,
+and
+\[
+\#\{\omega:\Enc_n(F)(\omega)=0\}=\sum_{i=1}^{n}\kappa_i(F)\,2^{n-i}.
+\]
+Moreover, if $p\in\Omega_{i-1}$ is not killed, at most one child of $p$ is killed. For fixed $F$
+and fixed gates of the levels above $p$, a given child of $p$ is killed with probability at most
+$1/q$ over the gate at $p$.
+\end{lemma}
+\begin{proof}
+By Proposition~\ref{prop:closed}, $\Enc_n(F)(\omega)=F_\omega$, so the zeros are the killed leaves.
+On the path from the root to a zero leaf, $F_{(\beta)}=F\neq0$ and the leaf is killed, so there is a
+first killed prefix; it is maximally killed. Every prefix below a killed prefix is killed, since a
+restriction of $0$ is $0$. Two maximally killed prefixes are not comparable, so their subtrees are
+disjoint, and a prefix in $\Omega_i$ has $2^{n-i}$ leaves.
+
+Write $F_p=A+xB$ with $x=x_{n-i+1}$. The children are $A+t^0(p)B$ and $A+t^1(p)B$. If both vanish,
+then $(t^0(p)-t^1(p))B=0$, so $B=0$, $A=0$ and $F_p=0$. A child is killed iff $A=-t\,B$ for its point
+$t$: this is impossible if $B=0$ (then $A\neq0$), and otherwise holds for at most one value of $t$.
+\end{proof}
+
+\begin{proposition}[Coincidences cost $R\,2^{-j}$]\label{prop:coincidence}
+Let $1\le j\le n$ and let $p\neq p'\in\Omega_{j-1}$ lie in different copies ($\beta\neq\beta'$). If
+two structural points of their gates coincide, $t^b(p)=t^{b'}(p')=s$, then
+\[
+\Delta(C_n)\ \le\ 1-R\,(1+2^{-j})+\frac1{L_n}.
+\]
+\end{proposition}
+\begin{proof}
+Write $p=(\beta,\theta_n,\dots,\theta_{n-j+2})$. For $1\le i\le j-1$ let $c_i$ be the structural point
+of the sibling, off the path of $p$, at level $i$: $c_i=t^{1-\theta_{n-i+1}}_{n-i+1}(\beta,\theta_n,\dots,\theta_{n-i+2})$. Put
+\[
+F=\prod_{i=1}^{j-1}\bigl(x_{n-i+1}-c_i\bigr)\cdot\bigl(x_{n-j+1}-s\bigr)\cdot K(x_1,\dots,x_{n-j}),
+\]
+which is multilinear. It vanishes on:
+\begin{itemize}[leftmargin=*]
+\item the $j-1$ sibling subtrees off the path of $p$, of sizes $2^{n-1},\dots,2^{n-j+1}$, which sum to $2^n-2^{n-j+1}$;
+\item the subtrees below $(p,b)$ and $(p',b')$, of size $2^{n-j}$ each. They are disjoint from the
+previous ones ($(p,b)$ is on the path of $p$, and $p'$ is in another copy).
+\end{itemize}
+This gives $2^n$ zeros. The factor $K$ ranges over a space of dimension $2^{n-j}$, so it can be chosen
+nonzero and vanishing at $2^{n-j}-1$ further positions. Then $F\neq0$ has at least
+$2^n+2^{n-j}-1=D_n-1+2^{n-j}$ zeros, a relative weight of at most $1-R-R\,2^{-j}+1/L_n$.
+\end{proof}
+
+\begin{remark}[Consequences for the level count]
+Each pair of points of distinct level-$j$ nodes coincides with probability $1/q$. So a theorem with
+failure probability $2^{-\lambda}<1/q$ must allow a loss of order $(\lambda/\log_2q)\,R\,2^{-i_0}$ after a
+checked setup at level $i_0$. Coincidences are not the only source of excess zeros: for $n=2$, four
+positions in different level-$2$ nodes whose points lie on a line $x_2=a+bx_1$ give the nonzero
+$F=x_2-a-bx_1$ with $4=D_2$ zeros, although all points are distinct. A proof that removes the
+level count must therefore control algebraic relations among many gate points at once.
+\end{remark}
+
+\begin{problem}[Removing the level count]\label{prob:levelcount}
+Theorems~\ref{thm:distance2} and~\ref{thm:checked} lose about $H_2(2^{-k})/\log_2q$ per level. Prove a bound
+\[
+\Delta(C_n)\ \ge\ 1-R-c_1\frac{H_2(R)}{\log_2q}-c_2\frac{\lambda}{\log_2q}\,R\,2^{-i_0}-o(1)
+\]
+with $c_1,c_2$ independent of $n$, or show that a loss growing with $n$ is unavoidable.
+\end{problem}
+
+%=====================================================================
+\section{Folding}
+%=====================================================================
+
+\begin{definition}[Fold]
+For $1\le j\le n$ and $z\in\K$, define $\fold_{j,z}:\K^{\Omega_{n-j+1}}\to\K^{\Omega_{n-j}}$ by
+\[
+(\fold_{j,z}w)(\omega')=w(\omega',0)+\lambda_{j,\omega'}(z)\bigl(w(\omega',1)-w(\omega',0)\bigr),
+\qquad
+\lambda_{j,\omega'}(z)=\frac{z-t_j^0(\omega')}{t_j^1(\omega')-t_j^0(\omega')}.
+\]
+By Lemma~\ref{lem:gate-rule}, this equals the gate rule of $A_j(\omega')$ at $x_j=z$:
+\[
+(\fold_{j,z}w)(\omega')=W_L(z)\,\tfrac{d}{\delta}\,w(\omega',1)-W_R(z)\,\tfrac{c}{\delta}\,w(\omega',0).
+\]
+\end{definition}
+
+\begin{lemma}[Compatibility]\label{lem:compat}
+For $F\in\ML(x_j,\dots,x_n)$,
+\[
+\fold_{j,z}\bigl(\Enc_{n-j+1}(F)\bigr)=\Enc_{n-j}\bigl(F|_{x_j=z}\bigr).
+\]
+Consequently, folding $\Enc_n(F)$ with $z_1,\dots,z_n$ gives the constant word $F(z_1,\dots,z_n)$.
+\end{lemma}
+\begin{proof}
+With $F=u+x_jv$, the block at $\omega'$ is $(e_u+t^0e_v,\ e_u+t^1e_v)$, where
+$e_u=\Enc(u)(\omega')$ and $e_v=\Enc(v)(\omega')$. Its fold is $e_u+z\,e_v$, and
+$\Enc(u)+z\Enc(v)=\Enc(u+zv)$ by linearity.
+\end{proof}
+
+\begin{lemma}[Contraction]\label{lem:contract}
+$\dpos(\fold_{j,z}w,\fold_{j,z}w')\le\dblk(w,w')$.
+\end{lemma}
+\begin{proof}
+$(\fold w)(\omega')$ depends only on the block of $w$ at $\omega'$.
+\end{proof}
+
+\begin{lemma}[Line form]\label{lem:line}
+For $w\in\K^{\Omega_{n-j+1}}$ define $A,B\in\K^{\Omega_{n-j}}$ by gate inversion:
+\[
+B(\omega')=\frac{w(\omega',1)-w(\omega',0)}{t_j^1(\omega')-t_j^0(\omega')},\qquad
+A(\omega')=w(\omega',0)-t_j^0(\omega')B(\omega').
+\]
+Then $\fold_{j,z}w=A+zB$ for all $z$. The map $w\mapsto(A,B)$ is bijective. For $a,b\in C_{n-j}$,
+the word $w$ agrees with the codeword of $C_{n-j+1}$ built from $(a,b)$ on exactly the blocks
+$\omega'$ where $(A,B)(\omega')=(a,b)(\omega')$.
+\end{lemma}
+\begin{proof}
+Direct from Definition~\ref{def:enc} and $t^0\neq t^1$.
+\end{proof}
+
+\begin{lemma}[Line proximity]\label{lem:lineprox}
+Let $C\subseteq\K^N$ be linear with $\Delta(C)\ge\Delta$, let $0\le\delta<\Delta/3$, and
+$A,B\in\K^N$. Let $\mathcal{Z}=\{z\in\K:\dpos(A+zB,C)\le\delta\}$. If $|\mathcal{Z}|=M\ge2$,
+there exist $a,b\in C$ with
+\[
+\bigl|\{p:(A(p),B(p))\neq(a(p),b(p))\}\bigr|\ \le\ \frac{M}{M-1}\,\delta N.
+\]
+\end{lemma}
+\begin{proof}
+Take $z_1\neq z_2$ in $\mathcal{Z}$, with codewords $c_1,c_2$ agreeing with $A+z_iB$ on sets
+$S_1,S_2$ of size $\ge(1-\delta)N$. Put $b=(c_1-c_2)/(z_1-z_2)$ and $a=c_1-z_1b$, both in $C$.
+On $S_1\cap S_2$ we have $A=a$ and $B=b$.
+
+For any $z_3\in\mathcal{Z}$ with codeword $c_3$ and agreement set $S_3$, the codewords $c_3$ and
+$a+z_3b$ agree on $S_1\cap S_2\cap S_3$. This set has size $\ge(1-3\delta)N>(1-\Delta)N$, so
+$c_3=a+z_3b$. Hence every $z\in\mathcal{Z}$ has agreement set
+$S_z\subseteq\{p:A(p)+zB(p)=a(p)+zb(p)\}$.
+
+Let $E=\{p:(A,B)(p)\neq(a,b)(p)\}$. For $p\in E$ the affine function
+$z\mapsto(A-a)(p)+z(B-b)(p)$ is nonzero, so $p\in S_z$ for at most one $z$. Then
+$\sum_{z\in\mathcal{Z}}|E\cap S_z|\le|E|$. Combined with $|E\setminus S_z|\le\delta N$, this gives
+$M|E|-|E|\le M\delta N$.
+\end{proof}
+
+\begin{corollary}[Folding preserves distance]\label{cor:foldprox}
+Let $\Delta_{n-j}=\Delta(C_{n-j})$, $0\le\delta<\Delta_{n-j}/3$ and $\eta>0$. If
+$\dblk(w,C_{n-j+1}\otimes\K)\ge(1+\eta)\delta$, then
+\[
+\bigl|\{z\in\K:\ \dpos(\fold_{j,z}w,\ C_{n-j}\otimes\K)\le\delta\}\bigr|\ \le\ 1+\eta^{-1}.
+\]
+\end{corollary}
+\begin{proof}
+Write $\fold_{j,z}w=A+zB$ (Lemma~\ref{lem:line}) and let $M$ be the number of such $z$. If $M\ge2$,
+Lemma~\ref{lem:lineprox} and Lemma~\ref{lem:line} give $\dblk(w,C_{n-j+1}\otimes\K)\le\frac{M}{M-1}\delta$.
+Hence $1+\eta\le M/(M-1)$, i.e.\ $M\le1+\eta^{-1}$. Lemma~\ref{lem:ext} transfers $\Delta$ to $\K$.
+\end{proof}
+
+%=====================================================================
+\section{The commitment scheme}\label{sec:pcs}
+%=====================================================================
+
+\paragraph{Parameters.} $n$ (variables), $k$ (redundancy), $s$ (queries), $\F\subseteq\K$, a hash
+function $H$, and a public seed. The gate family $\mathcal{A}$ is derived from the seed with
+gates uniform on $\Gs(\F)$. Merkle leaves are blocks: the leaf of a layer at $\omega'$ is the pair
+$(w(\omega',0),w(\omega',1))$.
+
+\subsection{Protocol}
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Commit.} The prover computes $E_0=\Enc_n(F)\in\F^{\Omega_n}$ and publishes its Merkle root $R_0$.
+\item \textbf{Fold.} For $j=1,\dots,n$: the verifier sends $z_j\in\K$ uniform (in the non-interactive
+version $z_j=H(R_0,\dots,R_{j-1})$). The prover computes $E_j=\fold_{j,z_j}(E_{j-1})\in\K^{\Omega_{n-j}}$.
+For $j<n$ it publishes the root $R_j$. For $j=n$ it sends $E_n\in\K^{2^k}$ in full.
+\item \textbf{Output.} The verifier checks that $E_n$ is constant and outputs $y=E_n(\beta)$, the
+claimed value of $F(z_1,\dots,z_n)$.
+\item \textbf{Query.} Repeat $s$ times: sample $\omega=(\beta,\theta_n,\dots,\theta_1)\in\Omega_n$
+uniformly. For $j=1,\dots,n$, open the block of $E_{j-1}$ at $\omega^{(j)}$ and the entry
+$E_j(\omega^{(j)})$; the latter lies in the block of $E_j$ at $\omega^{(j+1)}$, opened in the next
+step, or in $E_n$. Check
+\[
+E_j(\omega^{(j)})=W_L(z_j)\,\tfrac{d}{\delta}\,E_{j-1}(\omega^{(j)},1)-W_R(z_j)\,\tfrac{c}{\delta}\,E_{j-1}(\omega^{(j)},0)
+\]
+with $A_j(\omega^{(j)})=\begin{pmatrix}a&b\\c&d\end{pmatrix}$, together with all Merkle paths.
+\end{enumerate}
+
+Per query: $n$ block openings, Merkle paths of lengths $n+k-j$, and $O(n)$ field operations.
+Prover: $(n+1)2^{n+k}$ operations to encode and $2^{n+k}$ to fold, plus hashing.
+
+%=====================================================================
+\section{Security}\label{sec:security}
+%=====================================================================
+
+\begin{theorem}[Completeness]
+An honest prover is always accepted, and $y=F(z_1,\dots,z_n)$.
+\end{theorem}
+\begin{proof}
+Lemma~\ref{lem:compat} and Lemma~\ref{lem:gate-rule}.
+\end{proof}
+
+For words $x,x'$ on the same layer write $\mathrm{Agr}(x,x')=\{\omega:x(\omega)=x'(\omega)\}$, and for
+$w,c\in\K^{\Omega_i}$ ($i\ge1$) write $\mathrm{BAgr}(w,c)\subseteq\Omega_{i-1}$ for the set of blocks
+on which $w$ and $c$ agree in both entries.
+
+\begin{lemma}[Folding preserves agreement sets]\label{lem:agree}
+Let $1\le j\le n$ and $C=C_{n-j}\otimes\K$ with $\Delta(C)\ge\Delta$. Let $\varepsilon>0$ and
+\[
+0\le\delta<\delta_{\max}(\Delta):=\min\Bigl(1-(1-\Delta)^{1/3},\ \tfrac{\Delta}{2}\Bigr).
+\]
+Put
+\[
+\gamma=\frac{(1-\delta)^3-(1-\Delta)}{\Delta},\qquad
+M=\Bigl\lfloor\frac{\Delta}{\Delta-2\delta}\Bigr\rfloor+1,\qquad
+N_1=\Bigl\lceil\max\Bigl(\frac{12}{\Delta\gamma},\ \frac{2M}{\gamma}+2\Bigr)\Bigr\rceil.
+\]
+For every $w\in\K^{\Omega_{n-j+1}}$ there is a set $B(w)\subseteq\K$ with
+$|B(w)|<N_1+1/\varepsilon$ such that, for every $z\notin B(w)$ and every $c'\in C$ with
+$\dpos(\fold_{j,z}w,c')\le\delta$, there is $c\in C_{n-j+1}\otimes\K$ with
+\[
+\fold_{j,z}(c)=c'\qquad\text{and}\qquad
+\bigl|\mathrm{Agr}(\fold_{j,z}w,\,c')\setminus\mathrm{BAgr}(w,c)\bigr|\le\varepsilon\,L_{n-j}.
+\]
+\end{lemma}
+\begin{proof}
+Write $L=L_{n-j}$ and $\fold_{j,z}w=A+zB$ (Lemma~\ref{lem:line}). Let
+$\mathcal{Z}=\{z:\dpos(A+zB,C)\le\delta\}$. Since $2\delta<\Delta$, each $z\in\mathcal{Z}$ has a unique
+codeword $c_z$ within distance $\delta$; let $S_z$ be its agreement set, $|S_z|\ge(1-\delta)L$.
+Consider the points $P_z=(z,c_z)$ of the affine space $\K\times C$.
+
+\emph{Step 1 (good triples are collinear).} Let $z_1,z_2,z_3\in\mathcal{Z}$ be distinct with
+$|S_{z_1}\cap S_{z_2}\cap S_{z_3}|>(1-\Delta)L$. Put $b=(c_{z_1}-c_{z_2})/(z_1-z_2)$ and
+$a=c_{z_1}-z_1b$. On $S_{z_1}\cap S_{z_2}$ we have $(A,B)=(a,b)$. On the triple intersection,
+$c_{z_3}=A+z_3B=a+z_3b$. Two codewords agreeing on more than $(1-\Delta)L$ positions are equal, so
+$c_{z_3}=a+z_3b$: the three points lie on one line.
+
+\emph{Step 2 (many good triples).} Let $N=|\mathcal{Z}|\ge3$ and
+$Z_p=\{z\in\mathcal{Z}:p\in S_z\}$. Then $\sum_p|Z_p|\ge N(1-\delta)L$, and the sum of
+$|S_{z_1}\cap S_{z_2}\cap S_{z_3}|$ over ordered triples of distinct elements equals
+$\sum_p|Z_p|(|Z_p|-1)(|Z_p|-2)$. Since $x(x-1)(x-2)\ge\max(0,x-2)^3$ on integers and the right side
+is convex, this sum is at least $L\bigl(N(1-\delta)-2\bigr)^3$. Dividing by $N^3$, the average
+triple intersection is at least $L(1-\delta-2/N)^3$. Each triple intersection is at most $L$, and
+at most $(1-\Delta)L$ for a bad triple. So the fraction of good triples is at least
+\[
+\gamma_N=\frac{(1-\delta-2/N)^3-(1-\Delta)}{\Delta}\ \ge\ \gamma-\frac{6}{N\Delta}.
+\]
+
+\emph{Step 3 (a heavy line).} Distinct points of $\K\times C$ span a unique line. If line $\ell$
+carries $m_\ell$ of the points, ordered collinear triples number
+$\sum_\ell m_\ell(m_\ell-1)(m_\ell-2)\le(\max_\ell m_\ell)\,N(N-1)$. Hence some line carries at
+least $\gamma_N(N-2)$ points. For $N\ge N_1$ this is at least $M$.
+
+\emph{Step 4 (agreement along a line).} Let a line carry $m\ge2$ points, i.e.\ $c_z=a+zb$ for
+$m$ values $z$. Put $E=\{p:(A,B)(p)\neq(a,b)(p)\}$. As in Lemma~\ref{lem:lineprox}, each $p\in E$
+lies in at most one $S_z$, while $|E\setminus S_z|\le\delta L$. Hence $|E|\le\frac{m}{m-1}\delta L$.
+
+\emph{Step 5 (at most one heavy line).} Suppose two distinct lines each carry $\ge M$ points, with
+pairs $(a,b)\neq(a',b')$ and sets $E,E'$. Outside $E\cup E'$, $(a,b)=(A,B)=(a',b')$. But
+$(a-a',b-b')\neq0$ is nonzero on at least $\Delta L$ positions. So
+$\Delta L\le|E|+|E'|\le\frac{2M}{M-1}\delta L$, which contradicts $\frac{M}{M-1}<\frac{\Delta}{2\delta}$.
+
+\emph{Step 6 (the exceptional set).}
+\begin{itemize}[leftmargin=*]
+\item If $N<N_1$, put $B(w)=\mathcal{Z}$.
+\item Otherwise let $\ell$ be the unique heavy line, with pair $(a,b)$ and set $E$, and let
+$R=\mathcal{Z}\setminus\ell$. If $|R|\ge N_1$, Steps 2--3 applied to $R$ give a second heavy line,
+contradicting Step 5. So $|R|<N_1$.
+\item On $\ell$ we have $S_z=E^{c}\cup(E\cap S_z)$ and $\sum_{z\in\ell}|E\cap S_z|\le|E|\le L$. So
+fewer than $1/\varepsilon$ values $z\in\ell$ have $|E\cap S_z|>\varepsilon L$.
+\item Put $B(w)=R\cup\{z\in\ell:|E\cap S_z|>\varepsilon L\}$.
+\end{itemize}
+For $z\notin B(w)$ with a codeword $c'$ within $\delta$, we have $z\in\ell$ and $c'=c_z=a+zb$. Let
+$c$ be the word of $C_{n-j+1}\otimes\K$ built from $(a,b)$. Then $\fold_{j,z}c=c'$, and
+$\mathrm{BAgr}(w,c)=E^{c}$ by Lemma~\ref{lem:line}.
+\end{proof}
+
+\begin{remark}
+For $\Delta<3-\sqrt5\approx0.76$ the binding term is the triple radius $1-(1-\Delta)^{1/3}$, which
+exceeds $\Delta/3$. Example: for $\Delta=0.508$ the radius grows from $0.169$ to $0.21$.
+\end{remark}
+
+Fix a family with $\Delta(C_i)\ge\Delta^{*}$ for all $i$, a threshold $0<\delta<\delta_{\max}(\Delta^{*})$ (Lemma~\ref{lem:agree}) and
+$\varepsilon>0$. Say the commitment $R_0$ \emph{binds} $F^{*}\in\ML(x_1,\dots,x_n)$ (coefficients in $\K$) if $\dblk(E_0,\Enc_n(F^{*}))<\delta$.
+Such an $F^{*}$ is unique, because $2\delta<\Delta^{*}$.
+
+\begin{theorem}[Soundness]\label{thm:sound}
+For any prover, the probability that the verifier accepts while either $R_0$ binds no polynomial,
+or $R_0$ binds $F^{*}$ and $y\neq F^{*}(z_1,\dots,z_n)$, is at most
+\[
+\frac{n\,(N_1+1/\varepsilon)}{|\K|}\;+\;\bigl(1-\delta+n\varepsilon\bigr)^{s}
+\]
+in the IOP model (Merkle binding assumed).
+\end{theorem}
+\begin{proof}
+Write $f_j=\fold_{j,z_j}(E_{j-1})$; the check of step $j$ on a query passes iff
+$E_j(\omega^{(j)})=f_j(\omega^{(j)})$.
+
+\emph{Good challenges.} $E_{j-1}$ is fixed before $z_j$ is drawn. Let $G$ be the event
+$z_j\notin B(E_{j-1})$ for all $j$ (Lemma~\ref{lem:agree}). Then
+$\Pr[\neg G]\le n(N_1+1/\varepsilon)/|\K|$. Assume $G$, and that the verifier checked that $E_n$ is
+the constant $y$.
+
+\emph{Descent.} Put $c'_n=E_n\in C_0\otimes\K$. For $j=n,n-1,\dots,1$:
+\begin{itemize}[leftmargin=*]
+\item if $\dpos(f_j,c'_j)>\delta$, stop and set $J=j$;
+\item otherwise, Lemma~\ref{lem:agree} gives $c'_{j-1}$ with $\fold_{j,z_j}c'_{j-1}=c'_j$ and a set
+$X_j=\mathrm{Agr}(f_j,c'_j)\setminus\mathrm{BAgr}(E_{j-1},c'_{j-1})$ with
+$|X_j|\le\varepsilon L_{n-j}$.
+\end{itemize}
+If the descent never stops, set $J=0$.
+The codewords $c'_j$ and sets $X_j$ depend only on the transcript before the query phase.
+
+\emph{One query.} Let $\omega$ be a query and $p_j=\omega^{(j)}$. Suppose it passes every check
+and $p_j\notin X_j$ for all $j>J$. We show by descending induction that $E_j(p_j)=c'_j(p_j)$ for
+$j\ge J$.
+\begin{itemize}[leftmargin=*]
+\item For $j=n$ this is the definition of $c'_n$.
+\item Assume it for $j>J$. The check at step $j$ gives $f_j(p_j)=E_j(p_j)=c'_j(p_j)$, so
+$p_j\in\mathrm{Agr}(f_j,c'_j)$. Since $p_j\notin X_j$, the block of $E_{j-1}$ at $p_j$ agrees with
+$c'_{j-1}$ in both entries. In particular $E_{j-1}(p_{j-1})=c'_{j-1}(p_{j-1})$.
+\end{itemize}
+Consequently:
+\begin{itemize}[leftmargin=*]
+\item if $J\ge1$, then $p_J\in\mathrm{Agr}(f_J,c'_J)$, a set of relative size $<1-\delta$;
+\item if $J=0$, the block of $E_0$ at $p_1$ lies in $\mathrm{BAgr}(E_0,c'_0)$, a set of relative size
+$1-\dblk(E_0,c'_0)$.
+\end{itemize}
+Since each $p_j$ is uniform on its layer,
+\[
+\Pr[\text{query passes}]\le n\varepsilon+\max\bigl(1-\delta,\ 1-\dblk(E_0,c'_0)\bigr).
+\]
+
+\emph{The bad cases.} Folding $c'_0$ through all rounds gives $c'_n$, the constant $y$. Write
+$c'_0=\Enc_n(\widetilde F)$; Lemma~\ref{lem:compat} gives $y=\widetilde F(z)$.
+\begin{itemize}[leftmargin=*]
+\item If $R_0$ binds no polynomial, then $\dblk(E_0,c'_0)\ge\delta$.
+\item If $R_0$ binds $F^{*}$ and $y\neq F^{*}(z)$, then $\widetilde F\neq F^{*}$. Distinct codewords are at
+block distance $\ge\Delta^{*}$, so $\dblk(E_0,c'_0)\ge\Delta^{*}-\delta>\delta$.
+\end{itemize}
+In both cases a query passes with probability $\le1-\delta+n\varepsilon$. The $s$ query positions
+are independent of everything fixed above.
+\end{proof}
+
+\begin{remark}[Why this bound has no factor $n$]
+The argument follows the path of a query from the constant $y$ down to $T_0$. Lemma~\ref{lem:agree}
+guarantees that whenever a check passes on a position, the whole pair below it, including the
+sibling not on the path, agrees with one fixed valid table. A layer-by-layer distance count
+cannot see this, and loses a factor $n$.
+\end{remark}
+
+\begin{remark}[Non-interactive version]
+With $z_j=H(\text{transcript up to }R_{j-1})$ and query positions hashed from the full
+transcript, a prover making $Q$ hash queries gains at most a factor $Q$ on the first term, plus the
+Merkle collision term.
+\end{remark}
+
+\begin{remark}[Concrete parameters, proven]
+Take $\F=\mathbb{F}_{2^{31}-1}$, $n=20$, $k=6$ (64 copies, $\Delta^{*}\ge0.508$), $\K$ of degree $5$
+over $\F$, $\delta=0.20$ (so $\gamma\approx0.0394$, $M=5$, $N_1=600$) and $\varepsilon=2^{-20}$. Then
+$n(N_1+1/\varepsilon)/|\K|\le2^{-130}$, and $s=398$ queries give $(1-\delta+n\varepsilon)^{s}<2^{-128}$.
+\end{remark}
+
+\begin{remark}[Any field]
+Nothing above uses structure of $\F$ beyond its size: no subgroup and no special element. If
+$\F$ is too small for Theorem~\ref{thm:distance} (roughly $q<2^{30}$ at $n=20$), sample the
+gates in an extension $\F'\supseteq\F$. The table $E_0$ then lives in $\F'$, and every
+statement holds with $q=|\F'|$. The challenge field $\K$ only needs
+$n(N_1+1/\varepsilon)/|\K|$ to be negligible.
+\end{remark}
+
+\begin{problem}[Up to $\Delta^{*}/2$]
+Remove the triple-radius condition in Lemma~\ref{lem:agree}, so that $\delta<\Delta^{*}/2$ suffices. With $\Delta^{*}=0.508$ this gives about $303$ queries.
+\end{problem}
+
+%=====================================================================
+\section{Distance in practice}\label{sec:practice}
+%=====================================================================
+
+Theorem~\ref{thm:distance2} loses about $n\,H_2(2^{-k})/\log_2q$ in total. At realistic field
+sizes the experiments below found no codeword below the Singleton limit; whether a loss growing
+with $n$ is intrinsic is open (Problem~\ref{prob:levelcount}).
+
+\paragraph{Experiment.} Over $\mathbb{F}_{2^{31}-1}$, with per-node random gates:
+\begin{itemize}[leftmargin=*]
+\item \textbf{Rank tests.} Test sets of $2^n$ positions for linear dependence of their columns,
+both uniformly random sets and unions of whole subtrees, where the tree structure would show a
+weakness.
+\item \textbf{Zero search.} Choose $2^n-1$ positions, take the nonzero polynomial vanishing there,
+and count all its zeros. More than $2^n-1$ zeros would beat the Singleton limit.
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{rrrrcccc}
+\toprule
+$n$ & copies & length & $2^n$ & singular (random) & singular (subtrees) & max zeros & $\Delta$ found\\
+\midrule
+6 & 2 & 128 & 64 & 0/300 & 0/300 & 63 & 0.508\\
+6 & 4 & 256 & 64 & 0/300 & 0/300 & 63 & 0.754\\
+6 & 8 & 512 & 64 & 0/300 & 0/300 & 63 & 0.877\\
+8 & 2 & 512 & 256 & 0/120 & 0/120 & 255 & 0.502\\
+8 & 4 & 1024 & 256 & 0/120 & 0/120 & 255 & 0.751\\
+8 & 8 & 2048 & 256 & 0/120 & 0/120 & 255 & 0.876\\
+\bottomrule
+\end{tabular}
+\caption{Every test meets the Singleton limit exactly. Control with per-layer gates ($n=6$):
+225 to 300 singular sets out of 300, and codewords of relative weight $2^{-6}$, as
+Proposition~\ref{prop:perlayer} predicts.}
+\label{tab:m31}
+\end{table}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrrl}
+\toprule
+setting & copies & $\Delta$ & queries & size of $E_0$ & status\\
+\midrule
+gates in Goldilocks & 64 & $0.811$ & 183 & $6.7\cdot10^{7}$ & proven (Thm.~\ref{thm:distance2})\\
+gates in Goldilocks & 16 & $0.579$ & 327 & $1.7\cdot10^{7}$ & proven (Thm.~\ref{thm:distance2})\\
+gates in Goldilocks$^3$ & 8 & $0.812$ & 183 & $8.4\cdot10^{6}$ in $\F_{p^3}$ & proven (Thm.~\ref{thm:distance2})\\
+gates in M31 & 64 & $0.508$ & 398 & $6.7\cdot10^{7}$ & proven (Thm.~\ref{thm:distance})\\
+any field, $q\ge2^{30}$ & 8 & $\approx0.86$ & $\approx163$ & $8.4\cdot10^{6}$ & if the level count is removed\\
+\bottomrule
+\end{tabular}
+\caption{Parameters for $n=20$ at $2^{-128}$ soundness (Theorem~\ref{thm:sound}).}
+\end{table}
+%=====================================================================
+\section{Further algebraic facts}
+%=====================================================================
+
+All statements below were checked numerically over $\mathbb{F}_{2^{31}-1}$ (Rust test suite).
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Kronecker form.} Let the bottom table $T_0$ come from per-layer gates $A_1,\dots,A_n$,
+where layer $i$ splits $x_{n-i+1}$ and children are ordered $(F_L,F_R)$. With the coefficient
+vector $\alpha$ indexed so that bit $n-1$ corresponds to $x_n$,
+\[
+\alpha=(A_1\otimes A_2\otimes\cdots\otimes A_n)\,T_0
+\]
+($A_1$ acting on the most significant index bit), and
+$\det(\bigotimes_iA_i)=\prod_i\det(A_i)^{2^{n-1}}$.
+\item \textbf{Sum row.} With $r(A)=[\,2a+c,\ 2b+d\,]$,
+$\sum_{x\in\{0,1\}^n}F(x)=\bigl(r(A_1)\otimes\cdots\otimes r(A_n)\bigr)T_0$.
+\item \textbf{Representation.} $\rho:\GL_2(\F)^n\to\GL(\F^{2^n})$,
+$\rho(A_1,\dots,A_n)=\bigotimes_iA_i$, is a homomorphism with
+\[
+\ker\rho=\Bigl\{(\lambda_1I,\dots,\lambda_nI):\ \textstyle\prod_i\lambda_i=1\Bigr\}.
+\]
+The folding map $\alpha\mapsto T_0$ is $\rho(A)^{-1}=\rho(A^{-1})$. The assignment
+$A\mapsto\rho(A)^{-1}$ is an anti-homomorphism. The homomorphism to use is
+$A\mapsto\rho(A^{-\top})$.
+\item \textbf{Identity gate.} For $A_i=I$, $T_0$ is the coefficient vector with index bits
+reversed relative to the splitting order.
+\end{enumerate}
+
+\end{document}
