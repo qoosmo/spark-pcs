@@ -1150,18 +1150,25 @@ give a query term of $192.3$ bits. These values do not depend on the commitment 
 
 \begin{table}[h]
 \centering
-\begin{tabular}{lrrrr}
+\small
+\begin{tabular}{rrlrrrrl}
 \toprule
-configuration & prover & verifier & proof & per polynomial\\
+$n$ & $s$ & configuration & prover & prover (8 thr.) & verifier & proof & per polynomial\\
 \midrule
-single opening, $m=4$ & 1.61 s & 13.6 ms & 647 KiB & ---\\
-single opening, $m=3$ & 1.82 s & 11.3 ms & 580 KiB & ---\\
-batch $t=16$, $m=3$ & 15.8 s & 59.6 ms & 5.26 MiB & 989 ms, 3.7 ms, 336 KiB\\
+16 & 376 & single, $m=3$ & 162 ms & 31.7 ms & 6.6 ms & 288 KiB & ---\\
+ &  & single, $m=4$ & 124 ms & 24.7 ms & 8.5 ms & 329 KiB & ---\\
+ &  & batch $t=16$, $m=3$ & 875 ms & 255 ms & 34.3 ms & 2.98 MiB & 54.7 ms, 2.1 ms, 191 KiB\\
+\midrule
+18 & 391 & single, $m=3$ & 449 ms & 112 ms & 9.0 ms & 429 KiB & ---\\
+ &  & single, $m=4$ & 437 ms & 115 ms & 11.2 ms & 471 KiB & ---\\
+ &  & batch $t=16$, $m=3$ & 3.73 s & 1.26 s & 46.0 ms & 3.99 MiB & 233 ms, 2.9 ms, 255 KiB\\
+\midrule
+20 & 407 & single, $m=3$ & 1.82 s & 0.49 s & 11.4 ms & 580 KiB & ---\\
+ &  & single, $m=4$ & 1.72 s & 0.46 s & 14.5 ms & 644 KiB & ---\\
+ &  & batch $t=16$, $m=3$ & 17.1 s & 5.87 s & 59.9 ms & 5.26 MiB & 1.07 s, 3.7 ms, 336 KiB\\
 \bottomrule
 \end{tabular}
-\caption{$n=20$ ($2^{20}$ coefficients), four copies, single thread, Apple M1, median of 10 runs. With
-8 threads the single-opening prover ($m=3$) takes 0.49 s. The one-time setup (gate derivation and the
-$C_3$ check) is not included.}
+\caption{Frozen v0.8 benchmark (tag \texttt{v0.8}, commit \texttt{b8e8081}): four copies, $i_0=3$, $g=16$, Apple M1 (16 GiB), median of 10 runs, every run verified. Prover and verifier single-threaded unless noted; the per-polynomial column gives prover, verifier and proof size divided by $t$. $s$ is derived from Theorem~\ref{thm:sound} at each $n$ for the 192-bit target. Not included: the one-time setup, 0.68 s of gate derivation plus 4.4 s for the $C_3$ check at $n=20$. Peak memory at $n=20$: 0.75 GB for a single opening, 3.2 GB for the batch.}
 \label{tab:impl}
 \end{table}
 
