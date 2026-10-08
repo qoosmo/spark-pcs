@@ -56,7 +56,7 @@ document.
 %=====================================================================
 
 \begin{itemize}[leftmargin=*]
-\item $\F$ is a finite field with $q=|\F|$ and $\operatorname{char}\F\neq 2$; $\K\supseteq\F$ is an
+\item $\F$ is a finite field with $q=|\F|$ (any characteristic, including $2$); $\K\supseteq\F$ is an
 extension field used for verifier challenges.
 \item $\ML(x_j,\dots,x_n)$ denotes multilinear polynomials in the listed variables;
 $\ML_i$ denotes multilinear polynomials in $i$ variables.
@@ -762,7 +762,7 @@ Let $1\le j\le n$ and $C=C_{n-j}\otimes\K$ with $\Delta(C)\ge\Delta$. Let $\vare
 Put
 \[
 \gamma=\frac{(1-\delta)^3-(1-\Delta)}{\Delta},\qquad
-M=\Bigl\lfloor\frac{\Delta}{\Delta-2\delta}\Bigr\rfloor+1,\qquad
+M=\Bigl\lfloor\frac{\delta}{\Delta-2\delta}\Bigr\rfloor+2,\qquad
 N_1=\Bigl\lceil\max\Bigl(\frac{12}{\Delta\gamma},\ \frac{2M}{\gamma}+2\Bigr)\Bigr\rceil.
 \]
 For every $w\in\K^{\Omega_{n-j+1}}$ there is a set $B(w)\subseteq\K$ with
@@ -805,20 +805,15 @@ least $\gamma_N(N-2)$ points. For $N\ge N_1$ this is at least $M$.
 $m$ values $z$. Put $E=\{p:(A,B)(p)\neq(a,b)(p)\}$. As in Lemma~\ref{lem:lineprox}, each $p\in E$
 lies in at most one $S_z$, while $|E\setminus S_z|\le\delta L$. Hence $|E|\le\frac{m}{m-1}\delta L$.
 
-\emph{Step 5 (at most one heavy line).} Suppose two distinct lines each carry $\ge M$ points, with
-pairs $(a,b)\neq(a',b')$ and sets $E,E'$. Outside $E\cup E'$, $(a,b)=(A,B)=(a',b')$. But
-$(a-a',b-b')\neq0$ is nonzero on at least $\Delta L$ positions. So
-$\Delta L\le|E|+|E'|\le\frac{2M}{M-1}\delta L$, which contradicts $\frac{M}{M-1}<\frac{\Delta}{2\delta}$.
+\emph{Step 5 (absorption).} Let a line $\ell$ with pair $(a,b)$ carry $m\ge M$ points, and let $E$ be as in Step 4, so $|E|\le\frac{M}{M-1}\delta L$. For any $z\in\mathcal{Z}$, the codewords $c_z$ and $a+zb$ both equal $A+zB$ on $S_z\setminus E$, a set of size at least $\bigl(1-\delta-\frac{M}{M-1}\delta\bigr)L$. Since $M-1>\frac{\delta}{\Delta-2\delta}$, we have $\delta\bigl(2+\frac{1}{M-1}\bigr)<\Delta$, so this size exceeds $(1-\Delta)L$ and $c_z=a+zb$. Hence \emph{every} point $P_z$, $z\in\mathcal{Z}$, lies on $\ell$.
 
 \emph{Step 6 (the exceptional set).}
 \begin{itemize}[leftmargin=*]
 \item If $N<N_1$, put $B(w)=\mathcal{Z}$.
-\item Otherwise let $\ell$ be the unique heavy line, with pair $(a,b)$ and set $E$, and let
-$R=\mathcal{Z}\setminus\ell$. If $|R|\ge N_1$, Steps 2--3 applied to $R$ give a second heavy line,
-contradicting Step 5. So $|R|<N_1$.
+\item Otherwise Step 3 gives a line $\ell$ carrying at least $M$ points, with pair $(a,b)$ and set $E$, and Step 5 puts all of $\mathcal{Z}$ on $\ell$.
 \item On $\ell$ we have $S_z=E^{c}\cup(E\cap S_z)$ and $\sum_{z\in\ell}|E\cap S_z|\le|E|\le L$. So
 fewer than $1/\varepsilon$ values $z\in\ell$ have $|E\cap S_z|>\varepsilon L$.
-\item Put $B(w)=R\cup\{z\in\ell:|E\cap S_z|>\varepsilon L\}$.
+\item Put $B(w)=\{z\in\mathcal{Z}:|E\cap S_z|>\varepsilon L\}$.
 \end{itemize}
 For $z\notin B(w)$ with a codeword $c'$ within $\delta$, we have $z\in\ell$ and $c'=c_z=a+zb$. Let
 $c$ be the word of $C_{n-j+1}\otimes\K$ built from $(a,b)$. Then $\fold_{j,z}c=c'$, and
@@ -899,6 +894,70 @@ sibling not on the path, agrees with one fixed valid table. A layer-by-layer dis
 cannot see this, and loses a factor $n$.
 \end{remark}
 
+\subsection{Committing only some layers}
+
+Folding is a public deterministic map, so a layer that is not committed can be recomputed by the
+verifier from the layer above it. This gives folding by $2^m$ per round with no new soundness loss.
+
+\begin{definition}[Commitment schedule]
+A \emph{schedule} is a set $J\subseteq\{1,\dots,n-1\}$ of layers that are \emph{not} committed. The
+protocol $\Pi_J$ is the protocol of \S\ref{sec:pcs} with these changes.
+\begin{itemize}[leftmargin=*]
+\item For $j\in J$ the prover sends no root $R_j$. The challenge $z_{j+1}$ is sampled right after
+$z_j$, with no prover message in between (non-interactively: $z_{j+1}=H(\text{transcript},z_j)$).
+\item In the query phase, for a committed layer $j_0\notin J$ followed by the run $j_0+1,\dots,j_0+m-1\in J$
+and the next committed layer $j_0+m\notin J$ (or $j_0+m=n$), the verifier opens the whole group of
+$2^m$ entries of $E_{j_0}$ below the prefix $\omega^{(j_0+m)}$, with one Merkle path. It recomputes the
+values of the skipped layers on this group with the gate rule, and checks the resulting value
+against the opened entry of $E_{j_0+m}$ (or against $E_n$).
+\end{itemize}
+Merkle leaves of layer $j_0$ are groups of $2^m$ entries. $J=\emptyset$ is the protocol of
+\S\ref{sec:pcs}; $J=\{1,3,5,\dots\}$ is folding by $4$ per round.
+\end{definition}
+
+\begin{theorem}[Soundness with any schedule]\label{thm:schedule}
+For every $J$, the soundness error of $\Pi_J$ is at most the bound of Theorem~\ref{thm:sound}:
+\[
+\frac{n\,(N_1+1/\varepsilon)}{|\K|}\;+\;\bigl(1-\delta+n\varepsilon\bigr)^{s}.
+\]
+\end{theorem}
+\begin{proof}
+Work in the IOP model of Theorem~\ref{thm:sound}: a root is an oracle to the full table, so the grouping of Merkle leaves plays no role. Let $P^{*}$ be any prover for $\Pi_J$. Build a prover $P'$ for $\Pi_\emptyset$:
+\begin{itemize}[leftmargin=*]
+\item $P'$ runs $P^{*}$ and forwards its messages and roots.
+\item For $j\in J$, after receiving $z_j$, $P'$ defines $E_j:=\fold_{j,z_j}(E_{j-1})$, where $E_{j-1}$ is
+the committed table, or the table defined in the same way if $j-1\in J$. It commits to $E_j$ honestly
+and sends the root $R_j$.
+\item In the query phase $P'$ answers the openings of committed layers with the answers of $P^{*}$,
+and the openings of the layers $j\in J$ honestly from $E_j$.
+\end{itemize}
+\emph{Same challenges.} In both protocols each $z_j$ is uniform on $\K$ and independent of
+everything before it. Inserting the root $R_j$ ($j\in J$) does not change this, because $E_j$ and
+hence $R_j$ are functions of messages already sent.
+
+\emph{Same acceptance.} Fix a query leaf $\omega$ and a run $j_0,\dots,j_0+m$ as in the definition.
+\begin{itemize}[leftmargin=*]
+\item The blocks of $E_{j_0}$ that $\Pi_\emptyset$ opens along $\omega$ in this run are contained in the
+group that $\Pi_J$ opens, and the $\Pi_J$ verifier sees them under one Merkle path to $R_{j_0}$.
+\item For $j\in J$, the $\Pi_\emptyset$ check at layer $j$ compares $E_j(\omega^{(j)})$ with the gate rule
+applied to a block of $E_{j-1}$. Since $E_j=\fold_{j,z_j}(E_{j-1})$ entrywise, it passes.
+\item The $\Pi_\emptyset$ check at the committed layer $j_0+m$ compares the opened entry of $E_{j_0+m}$
+with the gate rule applied to a block of $E_{j_0+m-1}$. That block is the recomputed value of the
+group, so this is exactly the $\Pi_J$ check.
+\end{itemize}
+Hence the $\Pi_\emptyset$ verifier accepts against $P'$ whenever the $\Pi_J$ verifier accepts against
+$P^{*}$, on the same randomness, with the same output $y$ and the same root $R_0$. Theorem~\ref{thm:sound}
+bounds the probability of the bad event for $P'$.
+\end{proof}
+
+\begin{remark}[Costs]
+Committing every $m$-th layer gives $\lceil n/m\rceil$ Merkle trees, and per query $\lceil n/m\rceil$
+paths, each with a leaf of $2^m$ entries. The verifier work for the gate rule is unchanged, about
+$2^m-1$ gate evaluations per committed layer. The same argument covers sending the last $r$ layers
+in full: the verifier folds $E_{n-r}$ itself and checks that the result is constant. The query
+count $s$ and the challenge field are unchanged.
+\end{remark}
+
 \begin{remark}[Non-interactive version]
 With $z_j=H(\text{transcript up to }R_{j-1})$ and query positions hashed from the full
 transcript, a prover making $Q$ hash queries gains at most a factor $Q$ on the first term, plus the
@@ -907,12 +966,12 @@ Merkle collision term.
 
 \begin{remark}[Concrete parameters, proven]
 Take $\F=\mathbb{F}_{2^{31}-1}$, $n=20$, $k=6$ (64 copies, $\Delta^{*}\ge0.508$), $\K$ of degree $5$
-over $\F$, $\delta=0.20$ (so $\gamma\approx0.0394$, $M=5$, $N_1=600$) and $\varepsilon=2^{-20}$. Then
+over $\F$, $\delta=0.20$ (so $\gamma\approx0.0394$, $M=3$, $N_1=600$) and $\varepsilon=2^{-20}$. Then
 $n(N_1+1/\varepsilon)/|\K|\le2^{-130}$, and $s=398$ queries give $(1-\delta+n\varepsilon)^{s}<2^{-128}$.
 \end{remark}
 
 \begin{remark}[Any field]
-Nothing above uses structure of $\F$ beyond its size: no subgroup and no special element. If
+Nothing above uses structure of $\F$ beyond its size: no subgroup and no special element. In particular every result holds in characteristic $2$: the proofs use only $t^0\neq t^1$, division by $t^1-t^0$, and Schwartz--Zippel. In a binary field, additions are XOR and Lemma~\ref{lem:sumrule} reads $\sum_{x\in\{0,1\}}F=c\,F_L+d\,F_R$. If
 $\F$ is too small for Theorem~\ref{thm:distance} (roughly $q<2^{30}$ at $n=20$), sample the
 gates in an extension $\F'\supseteq\F$. The table $E_0$ then lives in $\F'$, and every
 statement holds with $q=|\F'|$. The challenge field $\K$ only needs
