@@ -958,6 +958,75 @@ in full: the verifier folds $E_{n-r}$ itself and checks that the result is const
 count $s$ and the challenge field are unchanged.
 \end{remark}
 
+\subsection{Batch opening}
+
+To open $t$ polynomials $f_1,\dots,f_t\in\ML(x_1,\dots,x_n)$ at the same random point, the prover
+runs one protocol on the $t$-tuple of tables.
+
+\paragraph{Protocol.} Each position carries the tuple $\bigl(E_j^{(1)}(\omega),\dots,E_j^{(t)}(\omega)\bigr)$,
+where $E_0^{(i)}=\Enc_n(f_i)$. One Merkle tree per committed layer has these tuples (grouped in blocks) as
+leaves. All $t$ tables are folded with the same challenges $z_j$. The last layer is sent for every
+$i$; the verifier checks that each component is constant and outputs $y_i=E_n^{(i)}$. A query opens one
+path per committed layer and checks the gate rule in every component. The transcript absorbs the whole
+last layer before the query positions are derived. No random linear combination of the $f_i$ is used.
+
+For a linear code $C\subseteq\K^L$ let $C^{(t)}=\{(c_1,\dots,c_t):c_i\in C\}$, viewed as a code over the
+alphabet $\K^t$: a position is nonzero, or two words agree there, according to the whole $t$-tuple.
+Distances, $\mathrm{Agr}$ and $\mathrm{BAgr}$ are taken in this sense.
+
+\begin{proposition}\label{prop:interleave}
+$\Delta(C^{(t)})=\Delta(C)$.
+\end{proposition}
+\begin{proof}
+A nonzero $(c_1,\dots,c_t)$ has a nonzero component $c_i$, and its support contains that of $c_i$, so
+its weight is at least $\Delta(C)L$. The word $(c^\star,0,\dots,0)$ with $c^\star$ of minimum weight shows equality.
+\end{proof}
+
+\begin{lemma}\label{lem:agree-batch}
+Lemma~\ref{lem:agree} holds verbatim for $C^{(t)}$ in place of $C$, with the same $\gamma$, $M$, $N_1$ and the
+same bound $|B(w)|<N_1+1/\varepsilon$, independent of $t$.
+\end{lemma}
+\begin{proof}
+Folding acts componentwise with the same challenge and gates, so $\fold_{j,z}w=A+zB$ with $A,B$ taking
+values in $\K^t$, and the line form (Lemma~\ref{lem:line}) holds componentwise. We check each step of the
+proof of Lemma~\ref{lem:agree}.
+\begin{itemize}[leftmargin=*]
+\item Unique decoding and Steps 1, 5: they use only that $C^{(t)}$ is a $\K$-linear space and that two
+codewords agreeing on more than $(1-\Delta)L$ positions are equal, which holds by
+Proposition~\ref{prop:interleave}.
+\item Steps 2--3: pure counting over positions and over points of the affine space $\K\times C^{(t)}$.
+\item Step 4: if $p\in E$ lay in $S_z\cap S_{z'}$, subtracting the two tuple equalities gives
+$B(p)=b(p)$ and $A(p)=a(p)$ in $\K^t$, a contradiction; the count is unchanged.
+\item Step 6: write $a=(a_i)$, $b=(b_i)$ with $a_i,b_i\in C$ and lift each $a_i+zb_i$ with the line form;
+the tuple $c$ of lifts satisfies $\fold_{j,z}c=c_z$ and $\mathrm{BAgr}(w,c)=E^{c}$.\qedhere
+\end{itemize}
+\end{proof}
+
+\begin{theorem}[Soundness of batch opening]\label{thm:batch}
+Say that the commitment binds $(f^\star_1,\dots,f^\star_t)$ if
+$\dblk\bigl(E_0,(\Enc_n(f^\star_i))_i\bigr)<\delta$. For any prover, the probability that the verifier
+accepts while the commitment binds no tuple, or binds $(f_i^\star)$ but $y_i\neq f_i^\star(z_1,\dots,z_n)$ for
+some $i$, is at most
+\[
+\frac{n\,(N_1+1/\varepsilon)}{|\K|}+\bigl(1-\delta+n\varepsilon\bigr)^{s}.
+\]
+In particular the number of queries does not depend on $t$. The same holds for every commitment schedule.
+\end{theorem}
+\begin{proof}
+Repeat the proof of Theorem~\ref{thm:sound} with tuple-valued tables, using Lemma~\ref{lem:agree-batch}
+once per round (not once per component), so the good-challenge event costs $n(N_1+1/\varepsilon)/|\K|$. A
+check passes iff the tuples are equal, so the descent and the one-query induction are unchanged. In the
+bad cases, if the descent reaches $J=0$ then $c'_0=(\Enc_n(\tilde f_i))_i$ with $y_i=\tilde f_i(z)$, so
+$(\tilde f_i)\neq(f_i^\star)$ and, by uniqueness of the bound tuple (Proposition~\ref{prop:interleave} and
+$2\delta<\Delta^{*}$), $\dblk(E_0,c'_0)\ge\delta$. For schedules, the reduction of Theorem~\ref{thm:schedule}
+recomputes skipped layers componentwise.
+\end{proof}
+
+\begin{remark}[Cost]
+The number of queries and Merkle paths is that of a single opening; only the leaves grow, by a factor
+$t$ in field elements. The prover encodes and folds $t$ tables.
+\end{remark}
+
 \begin{remark}[Non-interactive version]
 With $z_j=H(\text{transcript up to }R_{j-1})$ and query positions hashed from the full
 transcript, a prover making $Q$ hash queries gains at most a factor $Q$ on the first term, plus the
