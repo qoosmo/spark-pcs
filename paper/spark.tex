@@ -1048,8 +1048,38 @@ $n(N_1+1/\varepsilon)/|\K|$ to be negligible.
 \end{remark}
 
 \begin{problem}[Up to $\Delta^{*}/2$]
-Remove the triple-radius condition in Lemma~\ref{lem:agree}, so that $\delta<\Delta^{*}/2$ suffices. With $\Delta^{*}=0.508$ this gives about $303$ queries.
+Remove the triple-radius condition in Lemma~\ref{lem:agree}, so that $\delta<\Delta^{*}/2$ suffices, with a
+bad set of size $O(L)+O(1/\varepsilon)$. At $n=20$, four copies, $i_0=3$ and $g=16$ this lowers the query
+count from $407$ to $353$. Pairs of close challenges already define lines up to radius $\Delta/2$, and the
+absorption step (Step~5 of Lemma~\ref{lem:agree}) holds there; what is missing is the existence of a heavy
+line, which for general linear codes in this range is an open question.
 \end{problem}
+
+\begin{problem}[Correlated agreement up to the Johnson radius]\label{prob:johnson}
+Let $\delta<1-\sqrt{1-\Delta}$ and $\fold_rw=A+rB$. Call a pair $(r,c')$ with $c'$ a codeword at distance
+$\le\delta$ from $A+rB$ \emph{good} if some $c$ in the upper code satisfies $\fold_rc=c'$ and
+$|\mathrm{Agr}(A+rB,c')\setminus\mathrm{BAgr}(w,c)|\le\varepsilon L$. Show that the challenges having a pair that is
+not good number at most $c_1L+c_2/\varepsilon$.
+
+\emph{Evidence.} Exhaustive list decoding of SPARK codes over $\mathrm{GF}(32)$, $\mathrm{GF}(64)$ and
+$\mathrm{GF}(256)$ (length $16$, lists of size up to $3$, $1000$ adversarial and planted trials per code and radius)
+found at most $2$ such challenges for $\varepsilon L=1$ and at most $1$ for $\varepsilon L=2$, far below the
+allowance $1/\varepsilon$. Combined with Theorem~\ref{thm:sound}, a proof would lower the query count at the
+parameters above to about $300$.
+\end{problem}
+
+\begin{remark}[Structure of the minors of $C_2$]
+Write a coordinate row of $C_2$ as $(1,y_1,y_2,y_1y_2)$, with $y_1$ the point of the first gate and $y_2$
+that of the child gate. For one copy the single maximal minor is
+$\pm(t^1_\varnothing-t^0_\varnothing)^2(t^1_0-t^0_0)(t^1_1-t^0_1)$. For two copies the $70$ maximal minors fall
+into three classes by how the four lower blocks are used: $6$ of type $(2,2)$ and $48$ of type $(2,1,1)$
+factor into differences of structural points, while the $16$ of type $(1,1,1,1)$, one position from each
+lower block, are a single degree-$4$ relation among $8$ points that does not factor into point differences
+(checked over $\mathbb Q$, and over $\mathrm{GF}(2^8)$ against all $28$ candidate differences). Hence
+pairwise distinctness of gate points certifies every minor containing a double block, but not the
+all-single class, whose size grows like $2^{D_i}$. Certifying $C_4$ or $C_5$ cheaply therefore needs a new
+idea; it would raise $\Delta^{*}$ to $0.634$ or $0.643$ at the parameters above.
+\end{remark}
 
 %=====================================================================
 \section{Distance in practice}\label{sec:practice}
@@ -1103,6 +1133,38 @@ any field, $q\ge2^{30}$ & 8 & $\approx0.86$ & $\approx163$ & $8.4\cdot10^{6}$ & 
 \end{tabular}
 \caption{Parameters for $n=20$ at $2^{-128}$ soundness (Theorem~\ref{thm:sound}).}
 \end{table}
+%=====================================================================
+\section{Implementation and parameters}\label{sec:impl}
+%=====================================================================
+
+\paragraph{Instantiation.} Gates in $\F=\mathrm{GF}(2^{128})$ with modulus $x^{128}+x^7+x^2+x+1$ (carry-less
+multiplication); challenges and folded layers in $\K=\F[y]/(y^2+y+\alpha)$ with $\mathrm{Tr}(\alpha)=1$, so
+$|\K|=2^{256}$; hash BLAKE3; gates derived from a public seed by a keyed hash, one compression per gate, in the
+random-oracle model; checked setup at $i_0=3$ (all $\binom{32}{8}$ minors of $C_3$, done once).
+
+\paragraph{Security.} Target $128$ bits against $Q=2^{64}$ hash queries, i.e.\ each term of
+Theorem~\ref{thm:sound} at most $2^{-192}$. At $n=20$ and four copies: $\Delta^{*}=0.6157$, $\delta=0.2593$,
+$M=4$, $N_1=545$, $\varepsilon=2^{-59.67}$; fold term $192.0$ bits; with $g=16$ bits of grinding, $s=407$ queries
+give a query term of $192.3$ bits. These values do not depend on the commitment schedule
+(Theorem~\ref{thm:schedule}) nor on the batch size (Theorem~\ref{thm:batch}).
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+configuration & prover & verifier & proof & per polynomial\\
+\midrule
+single opening, $m=4$ & 1.61 s & 13.6 ms & 647 KiB & ---\\
+single opening, $m=3$ & 1.82 s & 11.3 ms & 580 KiB & ---\\
+batch $t=16$, $m=3$ & 15.8 s & 59.6 ms & 5.26 MiB & 989 ms, 3.7 ms, 336 KiB\\
+\bottomrule
+\end{tabular}
+\caption{$n=20$ ($2^{20}$ coefficients), four copies, single thread, Apple M1, median of 10 runs. With
+8 threads the single-opening prover ($m=3$) takes 0.49 s. The one-time setup (gate derivation and the
+$C_3$ check) is not included.}
+\label{tab:impl}
+\end{table}
+
 %=====================================================================
 \section{Further algebraic facts}
 %=====================================================================
