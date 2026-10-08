@@ -1,5 +1,5 @@
 [workspace]
-members = ["pcs", "experiments"]
+members = ["pcs", "experiments", "pcs-binary"]
 resolver = "2"
 
 [profile.release]

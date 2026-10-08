@@ -1,0 +1,22 @@
+*.orig
+*.pre-*
+.DS_Store
+freeze-v0.7/
+target/
+v05*.txt
+v051*.txt
+v06*.txt
+
+# Generated benchmark / freeze outputs
+freeze-v0.8/
+brief12b-benchmarks/
+brief10-runs.txt
+brief11b-results.csv
+brief11b-smoke.csv
+
+# Local build artifacts
+target/
+.DS_Store
+research/brief13/*-results.txt
+research/brief13/partD-*.txt
+research/brief13/partE_char2

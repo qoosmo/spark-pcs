@@ -1,0 +1,35 @@
+\paragraph{Structure of the \(C_2\) minors.}
+Write a coordinate row of \(C_2\) as
+\[
+  (1,y_1,y_2,y_1y_2),
+\]
+where \(y_1\) is the structural point chosen at the first gate and \(y_2\) is
+the point chosen at the child gate.  For \(k=0\), \(L_2=D_2=4\), and the
+unique maximal minor factors as
+\[
+  \det C_2
+  = \pm (t_{\varnothing}^{1}-t_{\varnothing}^{0})^2
+      (t_{0}^{1}-t_{0}^{0})
+      (t_{1}^{1}-t_{1}^{0}).
+\]
+Thus sibling distinctness is sufficient in the square case.
+
+For \(k=1\), \(L_2=8\) and \(D_2=4\), so there are
+\(\binom{8}{4}=70\) maximal minors.  Exhaustive symbolic factorization
+splits them into three classes according to the multiplicities with which
+the four lower blocks are selected.  The \(6\) minors of type \((2,2)\)
+factor into two linear point differences and one squared linear
+difference.  The \(48\) minors of type \((2,1,1)\) factor into four linear
+point differences.  The remaining \(16\) minors, of type
+\((1,1,1,1)\), contain one coordinate from each lower block and give a
+single degree-\(4\) relation involving \(8\) structural points; the
+representative polynomial is irreducible over \(\mathbb{Q}\).
+A numerical sanity check over \(\mathbb{F}_{2^8}\) tests every candidate
+point-difference factor \(u-v\) by imposing \(u=v\) and randomly
+specializing the remaining variables.  Nonzero specializations rule out
+such divisibility in characteristic two.  Consequently, pairwise
+distinctness of structural points explains all minors containing a double
+block but does not account for the hard four-single class.  Since this
+class has \(2^{D_i}\) child choices in the analogous higher-level
+configuration, the direct minor-certificate route does not presently
+yield a polynomial-size checked setup for \(C_4\) or \(C_5\).

@@ -1,0 +1,89 @@
+\subsection{Fiat--Shamir transcript binding for the implementation}
+\label{sec:fs-implementation}
+
+We model the Fiat--Shamir execution by replacing each verifier challenge with
+the output of a random oracle evaluated on a domain-separated transcript.
+For the release parameters,
+\[
+\mathbb F=\GF(2^{128}),\qquad
+\mathbb K=\GF(2^{256}),\qquad
+g=16.
+\]
+Under the current bound \(Q\le 2^{64}\) on random-oracle queries, the target is
+\[
+\lambda_{\mathrm{FS}}=128+\log_2 Q=192.
+\]
+
+The initial transcript absorbs a protocol/version domain separator together
+with \(n,k,s\), the public seed, and the checked-setup counter.  At round \(j\),
+the prover's current commitment root is absorbed before the fold challenge
+\(z_j\in\mathbb K\) is derived.  Sparse commitment levels use the same
+sequential transcript: skipped roots are not invented, and skipped fold
+challenges are still derived in order from the transcript state fixed by all
+previous commitments and challenges.
+
+After the final fold, the verifier checks that the last layer is constant.
+The complete last-layer value is absorbed before grinding and before query
+derivation.  In the batched protocol, all final component values
+\((y_1,\ldots,y_t)\) are absorbed in a fixed canonical order; this is
+equivalent to absorbing the full final layer because the verifier separately
+checks that every component is constant.
+
+Only then is the grinding seed derived under a grinding-specific domain.
+After a valid nonce is found, the nonce is absorbed.  Finally, the \(s\) query
+positions are derived under a query-specific domain.
+
+Hence the required transcript order is
+\[
+\boxed{
+\text{parameters/setup}
+\rightarrow
+\text{roots and fold challenges}
+\rightarrow
+\text{full last layer}
+\rightarrow
+\text{grinding}
+\rightarrow
+\text{query positions}.
+}
+\]
+
+Conditioned on Merkle binding and on the random-oracle transcript being
+collision free, Theorem~6.4 applies round by round exactly as in the
+public-coin IOP.  Before \(z_j\) is drawn, \(E_{j-1}\) is fixed by the previous
+transcript.  Therefore
+\[
+\Pr[\text{some bad fold challenge}]
+\le
+\frac{n(N_1+1/\varepsilon)}{|\mathbb K|}.
+\]
+Conditioned on all fold challenges being good, the descent leaves an
+acceptance witness set of density at most \(1-\delta+n\varepsilon\), and the
+query phase contributes
+\[
+(1-\delta+n\varepsilon)^s.
+\]
+The implementation therefore targets
+\[
+\frac{n(N_1+1/\varepsilon)}{|\mathbb K|}
++
+(1-\delta+n\varepsilon)^s
+\le 2^{-192},
+\]
+with the \(g\)-bit grinding contribution included in the query term.
+
+\paragraph{Transcript-binding checklist.}
+The release implementation must:
+\begin{enumerate}
+\item use distinct domain separators for setup, fold challenges, grinding,
+and query derivation;
+\item absorb \(n,k,s\), the seed, and setup counter;
+\item absorb every committed root before any dependent challenge;
+\item absorb the complete final layer before grinding;
+\item absorb the complete final layer before deriving queries;
+\item in batching, absorb all \(t\) final values in canonical order;
+\item absorb the accepted grinding nonce before deriving queries;
+\item derive sparse-schedule skipped fold challenges sequentially from the
+same transcript;
+\item use unambiguous fixed-width serialization.
+\end{enumerate}

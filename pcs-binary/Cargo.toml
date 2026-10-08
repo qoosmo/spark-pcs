@@ -1,0 +1,29 @@
+[package]
+name = "spark-binary"
+version = "0.8.0"
+edition = "2021"
+
+[dependencies]
+blake3 = "1"
+rand = "0.8"
+rayon = "1.12"
+sha2 = "0.10"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "field"
+harness = false
+
+[[bench]]
+name = "encode"
+harness = false
+
+[[bench]]
+name = "fold"
+harness = false
+
+[[bench]]
+name = "blake3_one_hash"
+harness = false
