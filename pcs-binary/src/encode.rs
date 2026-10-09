@@ -531,6 +531,11 @@ pub fn evaluate(coeffs: &[F128], z: &[F128]) -> F128 {
     layer[0]
 }
 
+
+pub const V09_GATE_SEED_DOMAIN: &[u8] = b"SPARK-SEED-v0.9";
+pub const V09_PUBLIC_GATE_SEED: u64 = 0x51aa735e64a0a5cd;
+pub const V09_N20_K2_I0_3_SETUP_COUNTER: u64 = 0;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -640,6 +645,23 @@ mod tests {
 
         l2[0].1 = l2[0].0;
         assert!(!c3_is_mds_from_raw(k, &l0, &l1, &l2));
+    }
+
+    #[test]
+    fn brief15_v09_public_seed_derivation_is_pinned() {
+        let h = blake3::hash(V09_GATE_SEED_DOMAIN);
+        let mut b = [0u8; 8];
+        b.copy_from_slice(&h.as_bytes()[..8]);
+        assert_eq!(u64::from_le_bytes(b), V09_PUBLIC_GATE_SEED);
+    }
+
+    #[test]
+    #[ignore = "exhaustive C(32,8) v0.9 checked setup; run in release mode"]
+    fn brief15_v09_public_seed_and_c3_setup_pass() {
+        let cs = GateFamily::from_seed_checked_i0_3(20, 2, V09_PUBLIC_GATE_SEED);
+        assert_eq!(cs.counter, V09_N20_K2_I0_3_SETUP_COUNTER);
+        assert_eq!(cs.family.n, 20);
+        assert_eq!(cs.family.k, 2);
     }
 
     #[test]
