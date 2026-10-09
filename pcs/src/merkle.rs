@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! SHA-256 Merkle tree. Leaves are byte strings (here: one block = one pair of entries).
 
 use sha2::{Digest, Sha256};

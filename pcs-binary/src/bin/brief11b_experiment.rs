@@ -1,4 +1,5 @@
 #![allow(
+// SPDX-License-Identifier: MIT OR Apache-2.0
     dead_code,
     non_snake_case,
     unused_mut,

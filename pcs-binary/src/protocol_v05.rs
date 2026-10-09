@@ -1,4 +1,5 @@
 #![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::{
     encode::{derive_raw_gate_with_counter, encode, GateFamily},

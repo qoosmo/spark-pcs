@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{extfield::F256, field::F128};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};

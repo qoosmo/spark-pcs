@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT OR Apache-2.0
 set -euo pipefail
 SRC="${1:-$HOME/Downloads/spark-binary}"
 DST="${2:-$HOME/Downloads/spark-pcs}"

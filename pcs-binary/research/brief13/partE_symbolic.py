@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """
 Brief 13 Part E exploratory factorization.
 Requires: pip install sympy

@@ -1,4 +1,5 @@
 #![allow(clippy::suspicious_arithmetic_impl, clippy::suspicious_op_assign_impl)]
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::field::F128;
 use core::fmt;

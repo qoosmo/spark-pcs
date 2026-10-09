@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use spark_binary::encode::GateFamily;
 use std::time::Instant;
 

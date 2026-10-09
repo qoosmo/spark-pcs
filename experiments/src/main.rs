@@ -1,4 +1,5 @@
 #![allow(
+// SPDX-License-Identifier: MIT OR Apache-2.0
     clippy::manual_is_multiple_of,
     clippy::needless_range_loop,
     clippy::ptr_arg

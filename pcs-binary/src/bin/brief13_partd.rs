@@ -1,4 +1,5 @@
 #![allow(dead_code, clippy::needless_range_loop)]
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Brief 13b Part D exact experiment.
 // Rust only, no external crates.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use spark_binary::{
     encode::GateFamily, field::F128, merkle_v05::HashKind,
     protocol_batch_v12::prove_and_verify_batch_v12, security::soundness_bits_from,

@@ -1,4 +1,5 @@
 #!/bin/zsh
+# SPDX-License-Identifier: MIT OR Apache-2.0
 set -euo pipefail
 
 ROOT="${1:-$HOME/Downloads/spark-binary}"

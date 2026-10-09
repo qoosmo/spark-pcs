@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use spark_binary::security::soundness_bits_from;
 
 fn arg_usize(args: &[String], name: &str, default: usize) -> usize {

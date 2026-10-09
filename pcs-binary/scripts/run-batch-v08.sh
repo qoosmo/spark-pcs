@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT OR Apache-2.0
 set -euo pipefail
 ROOT="${ROOT:-$HOME/Downloads/spark-binary}"
 TOTAL="${1:-16}"; MODE="${2:-}"; RUNS="${RUNS:-10}"; THREADS="${THREADS:-8}"

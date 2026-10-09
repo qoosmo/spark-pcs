@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Per-node gates, derived from a public seed.
 //!
 //! The gate for variable x_j (1 <= j <= n) at node q in Omega_{n-j} = {0,1}^(k+n-j)

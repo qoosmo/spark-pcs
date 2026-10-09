@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Security parameters from the spec (Theorem 3.10 distance bound, Lemma 6.2, Theorem 6.4).
 
 #[derive(Clone, Debug)]

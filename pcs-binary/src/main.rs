@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use rand::{rngs::StdRng, SeedableRng};
 use spark_binary::{
     encode::GateFamily, field::F128, merkle_v05::HashKind,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use spark_binary::{
     encode::{GateFamily, V09_N20_K2_I0_3_SETUP_COUNTER, V09_PUBLIC_GATE_SEED},
     field::F128,

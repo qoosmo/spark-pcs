@@ -1,4 +1,5 @@
 #![allow(dead_code, unused_imports, unused_mut, clippy::needless_range_loop)]
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Brief 13c: final Part D experiment.
 // Rust only; no external crates; no core protocol changes.

@@ -1,4 +1,5 @@
 #![allow(clippy::should_implement_trait)]
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Goldilocks field F_p, p = 2^64 - 2^32 + 1, and its cubic extension F_p[x]/(x^3 - W).
 

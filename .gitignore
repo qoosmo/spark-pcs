@@ -6,3 +6,6 @@ Cargo.lock
 *.toc
 *.fls
 *.fdb_latexmk
+pcs-binary/v09-smoke-*/
+pcs-binary/benchmark-results/
+*.profraw

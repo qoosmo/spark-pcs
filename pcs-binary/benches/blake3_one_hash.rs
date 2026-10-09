@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn bench_one_blake3(c: &mut Criterion) {

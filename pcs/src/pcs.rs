@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Matrix-gate folding PCS: commit, open at the folding point z = (z_1, ..., z_n), verify.
 //!
 //! Layout. Positions of layer j (0 <= j <= n) are indices of length 2^(k+n-j) whose bits are
