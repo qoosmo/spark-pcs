@@ -598,3 +598,574 @@ mod tests {
         assert_eq!(a.proof.evals[0],b.proof.eval);
     }
 }
+
+
+// -----------------------------------------------------------------------------
+// SPARK v0.9 batch transcript wrapper.
+// -----------------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct BatchProofV09 {
+    pub proof_format_version: u8,
+    pub header: Vec<u8>,
+    pub body: BatchProofV12,
+}
+
+impl BatchProofV09 {
+    pub fn serialized_size_bytes(&self) -> usize {
+        1 + 4 + self.header.len() + self.body.serialized_size_bytes()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BatchVerifyErrorV09 {
+    VersionMismatch { expected: u8, got: u8 },
+    InvalidParams(String),
+    HeaderMismatch,
+    InvalidProof,
+}
+
+#[derive(Debug)]
+pub struct BatchTimingsV09 {
+    pub encode: Duration,
+    pub commit0: Duration,
+    pub fold_total: Duration,
+    pub commit_folds: Duration,
+    pub query_open: Duration,
+    pub grind: Duration,
+    pub verify: BatchVerifyProfile,
+    pub commitment: Hash,
+    pub proof: BatchProofV09,
+    pub verified: bool,
+    pub challenges: Vec<F256>,
+    pub peak_memory_estimate_bytes: usize,
+}
+
+impl BatchTimingsV09 {
+    pub fn prover_total(&self) -> Duration {
+        self.encode
+            + self.commit0
+            + self.fold_total
+            + self.commit_folds
+            + self.query_open
+            + self.grind
+    }
+}
+
+fn derive_zs_batch_v09(
+    params: &crate::transcript_v09::ParamsV09,
+    commitment: &Hash,
+    roots: &[Hash],
+) -> Option<Vec<F256>> {
+    let header = params.header().ok()?;
+    let boundaries = committed_boundaries(params.n, params.commit_every);
+    if roots.len() != boundaries.len() {
+        return None;
+    }
+
+    let mut st = crate::transcript_v09::initial_state_v09(&header, commitment);
+    let mut zs = Vec::with_capacity(params.n);
+    let mut ri = 0usize;
+
+    for r in 0..params.n {
+        let z = crate::transcript_v09::challenge_field_v09(
+            &st,
+            b"fold",
+            r as u64,
+            params.hash_kind,
+        );
+        zs.push(z);
+
+        let b = r + 1;
+        if b < params.n && b % params.commit_every == 0 {
+            st.extend_from_slice(&roots[ri]);
+            ri += 1;
+        }
+    }
+    Some(zs)
+}
+
+fn final_state_batch_v09(
+    params: &crate::transcript_v09::ParamsV09,
+    commitment: &Hash,
+    roots: &[Hash],
+    evals: &[F256],
+) -> Option<Vec<u8>> {
+    let header = params.header().ok()?;
+    let boundaries = committed_boundaries(params.n, params.commit_every);
+    if roots.len() != boundaries.len() {
+        return None;
+    }
+
+    let mut st = crate::transcript_v09::initial_state_v09(&header, commitment);
+    for root in roots {
+        st.extend_from_slice(root);
+    }
+    crate::transcript_v09::append_batch_last_v09(&mut st, evals);
+    Some(st)
+}
+
+pub fn verify_batch_v09(
+    params: &crate::transcript_v09::ParamsV09,
+    commitment: &Hash,
+    proof: &BatchProofV09,
+) -> Result<BatchVerifyProfile, BatchVerifyErrorV09> {
+    let total = Instant::now();
+    let mut prof = BatchVerifyProfile::default();
+
+    params.validate().map_err(BatchVerifyErrorV09::InvalidParams)?;
+
+    if proof.proof_format_version != crate::transcript_v09::PROOF_FORMAT_VERSION_V09 {
+        return Err(BatchVerifyErrorV09::VersionMismatch {
+            expected: crate::transcript_v09::PROOF_FORMAT_VERSION_V09,
+            got: proof.proof_format_version,
+        });
+    }
+
+    let expected_header = params
+        .header()
+        .map_err(BatchVerifyErrorV09::InvalidParams)?
+        .serialize();
+    if proof.header != expected_header {
+        return Err(BatchVerifyErrorV09::HeaderMismatch);
+    }
+    if proof.body.evals.len() != params.t {
+        return Err(BatchVerifyErrorV09::InvalidProof);
+    }
+
+    let tr = Instant::now();
+    let boundaries = committed_boundaries(params.n, params.commit_every);
+    if proof.body.folded_roots.len() != boundaries.len()
+        || proof.body.folded_openings.len() != boundaries.len()
+    {
+        return Err(BatchVerifyErrorV09::InvalidProof);
+    }
+
+    let zs = derive_zs_batch_v09(params, commitment, &proof.body.folded_roots)
+        .ok_or(BatchVerifyErrorV09::InvalidProof)?;
+
+    let leaves0 = 1usize << (params.n + params.k - 1);
+    let final_state = final_state_batch_v09(
+        params,
+        commitment,
+        &proof.body.folded_roots,
+        &proof.body.evals,
+    )
+    .ok_or(BatchVerifyErrorV09::InvalidProof)?;
+
+    let gs = crate::transcript_v09::grind_seed_v09(&final_state, params.hash_kind);
+    let nonce = match (params.g, proof.body.grind_nonce) {
+        (0, None) => None,
+        (0, Some(_)) => return Err(BatchVerifyErrorV09::InvalidProof),
+        (_, Some(x))
+            if crate::transcript_v09::valid_grind_nonce_v09(
+                &gs,
+                x,
+                params.g,
+                params.hash_kind,
+            ) =>
+        {
+            Some(x)
+        }
+        _ => return Err(BatchVerifyErrorV09::InvalidProof),
+    };
+
+    let q0s = crate::transcript_v09::derive_queries_v09(
+        &final_state,
+        nonce,
+        params.s,
+        leaves0,
+        params.hash_kind,
+    );
+    let keys = collect_gate_keys(params.n, &q0s, params.commit_every);
+    prof.transcript = tr.elapsed();
+
+    let gd = Instant::now();
+    let (gates, p, i, b) =
+        derive_sparse_gates(params.gate_seed, params.setup_counter, &keys);
+    prof.gate_derivation = gd.elapsed();
+    prof.gate_prf = p;
+    prof.gate_batch_inverse = i;
+    prof.gate_build = b;
+
+    let ft = Instant::now();
+    let ls = derive_lambdas(params.n, &keys, &gates, &zs);
+    prof.folding += ft.elapsed();
+
+    let d0 = params.commit_every.min(params.n);
+    let ix0 = source_pair_indices(&q0s, 0, d0);
+
+    let mt = Instant::now();
+    let pairs0 = verify_base_opening(
+        commitment,
+        leaves0,
+        &ix0,
+        &proof.body.opening0,
+        params.t,
+        params.hash_kind,
+    )
+    .ok_or(BatchVerifyErrorV09::InvalidProof)?;
+    prof.merkle += mt.elapsed();
+
+    let ft = Instant::now();
+    let mut known = known_first(params.n, d0, &q0s, &ix0, &pairs0, &keys, &ls)
+        .ok_or(BatchVerifyErrorV09::InvalidProof)?;
+    prof.folding += ft.elapsed();
+
+    let mut a = d0;
+    for (j, &bound) in boundaries.iter().enumerate() {
+        if bound != a {
+            return Err(BatchVerifyErrorV09::InvalidProof);
+        }
+
+        let d = params.commit_every.min(params.n - bound);
+        let ix = source_pair_indices(&q0s, bound, d);
+        let leaves = leaves0 >> bound;
+
+        let mt = Instant::now();
+        let pairs = verify_ext_compact(
+            &proof.body.folded_roots[j],
+            leaves,
+            &ix,
+            &known,
+            &proof.body.folded_openings[j],
+            params.t,
+            params.hash_kind,
+        )
+        .ok_or(BatchVerifyErrorV09::InvalidProof)?;
+        prof.merkle += mt.elapsed();
+
+        let ft = Instant::now();
+        known = known_ext(params.n, bound, d, &q0s, &ix, &pairs, &keys, &ls)
+            .ok_or(BatchVerifyErrorV09::InvalidProof)?;
+        prof.folding += ft.elapsed();
+
+        a = bound + d;
+    }
+
+    if a != params.n
+        || !(0..params.t).all(|c| {
+            known[c]
+                .values()
+                .all(|v| *v == proof.body.evals[c])
+        })
+    {
+        return Err(BatchVerifyErrorV09::InvalidProof);
+    }
+
+    let accounted = prof.transcript + prof.gate_derivation + prof.merkle + prof.folding;
+    prof.other = total
+        .elapsed()
+        .checked_sub(accounted)
+        .unwrap_or(Duration::ZERO);
+
+    Ok(prof)
+}
+
+pub fn prove_and_verify_batch_v09(
+    coeff_batches: &[Vec<F128>],
+    family: &GateFamily,
+    params: &crate::transcript_v09::ParamsV09,
+) -> Result<BatchTimingsV09, BatchVerifyErrorV09> {
+    params.validate().map_err(BatchVerifyErrorV09::InvalidParams)?;
+
+    if coeff_batches.is_empty()
+        || coeff_batches.len() != params.t
+        || family.n != params.n
+        || family.k != params.k
+    {
+        return Err(BatchVerifyErrorV09::InvalidParams(
+            "batch params/family mismatch".into(),
+        ));
+    }
+
+    let bt = coeff_batches.len();
+    let coeff_len = 1usize << family.n;
+    if !coeff_batches.iter().all(|c| c.len() == coeff_len) {
+        return Err(BatchVerifyErrorV09::InvalidParams(
+            "coefficient length mismatch".into(),
+        ));
+    }
+
+    let stream = bt >= 32;
+    let te = Instant::now();
+    let mut word0s = coeff_batches
+        .iter()
+        .map(|c| encode(c, family))
+        .collect::<Vec<_>>();
+    let mut encode_t = te.elapsed();
+
+    let tc = Instant::now();
+    let tree0 = BatchMerkleTree::from_base(&word0s, params.hash_kind);
+    let commitment = tree0.root();
+    let commit0 = tc.elapsed();
+
+    let header = params.header().map_err(BatchVerifyErrorV09::InvalidParams)?;
+    let boundaries = committed_boundaries(family.n, params.commit_every);
+    let mut roots = Vec::with_capacity(boundaries.len());
+    let mut committed_words =
+        Vec::<Vec<Vec<F256>>>::with_capacity(boundaries.len());
+    let mut committed_trees =
+        Vec::<BatchMerkleTree>::with_capacity(boundaries.len());
+    let mut state = crate::transcript_v09::initial_state_v09(&header, &commitment);
+
+    let mut fold_total = Duration::ZERO;
+    let mut commit_folds = Duration::ZERO;
+    let mut current = Vec::<Vec<F256>>::new();
+    let mut final_words = Vec::<Vec<F256>>::new();
+
+    for (r, level) in family.levels.iter().rev().enumerate() {
+        let z = crate::transcript_v09::challenge_field_v09(
+            &state,
+            b"fold",
+            r as u64,
+            params.hash_kind,
+        );
+
+        let tf = Instant::now();
+        if r == 0 {
+            if stream {
+                word0s.clear();
+                word0s.shrink_to_fit();
+                let re = Instant::now();
+                current = coeff_batches
+                    .iter()
+                    .map(|c| {
+                        let w = encode(c, family);
+                        fold_first_level(&w, &level.gates, z)
+                    })
+                    .collect();
+                encode_t += re.elapsed();
+            } else {
+                current = word0s
+                    .iter()
+                    .map(|w| fold_first_level(w, &level.gates, z))
+                    .collect();
+            }
+        } else {
+            for c in 0..current.len() {
+                current[c] = fold_ext_level(&current[c], &level.gates, z);
+            }
+        }
+        fold_total += tf.elapsed();
+
+        let b = r + 1;
+        if b < family.n && b % params.commit_every == 0 {
+            let tc = Instant::now();
+            let tree = BatchMerkleTree::from_ext(&current, params.hash_kind);
+            let root = tree.root();
+            commit_folds += tc.elapsed();
+
+            roots.push(root);
+            state.extend_from_slice(&root);
+            committed_words.push(current.clone());
+            committed_trees.push(tree);
+        }
+
+        if b == family.n {
+            final_words = current.clone();
+        }
+    }
+
+    let evals = final_words.iter().map(|w| w[0]).collect::<Vec<_>>();
+    debug_assert!(
+        final_words
+            .iter()
+            .all(|w| w.iter().all(|x| *x == w[0]))
+    );
+
+    let mut final_state = state.clone();
+    crate::transcript_v09::append_batch_last_v09(&mut final_state, &evals);
+    let gs = crate::transcript_v09::grind_seed_v09(&final_state, params.hash_kind);
+
+    let tg = Instant::now();
+    let nonce = if params.g == 0 {
+        None
+    } else {
+        Some(crate::transcript_v09::find_grind_nonce_v09(
+            &gs,
+            params.g,
+            params.hash_kind,
+        ))
+    };
+    let grind = tg.elapsed();
+
+    let to = Instant::now();
+    let leaves0 = 1usize << (family.n + family.k - 1);
+    let q0s = crate::transcript_v09::derive_queries_v09(
+        &final_state,
+        nonce,
+        params.s,
+        leaves0,
+        params.hash_kind,
+    );
+    let d0 = params.commit_every.min(family.n);
+    let ix0 = source_pair_indices(&q0s, 0, d0);
+
+    if stream {
+        let re = Instant::now();
+        word0s = coeff_batches
+            .iter()
+            .map(|c| encode(c, family))
+            .collect();
+        encode_t += re.elapsed();
+    }
+
+    let opening0 = tree0.open_base(&word0s, &ix0);
+    let mut fops = Vec::with_capacity(boundaries.len());
+    for (j, &b) in boundaries.iter().enumerate() {
+        let d = params.commit_every.min(family.n - b);
+        let ix = source_pair_indices(&q0s, b, d);
+        let kp = target_positions(&q0s, b);
+        fops.push(
+            committed_trees[j]
+                .open_ext_compact(&committed_words[j], &ix, &kp),
+        );
+    }
+    let query_open = to.elapsed();
+
+    let body = BatchProofV12 {
+        folded_roots: roots,
+        evals,
+        grind_nonce: nonce,
+        opening0,
+        folded_openings: fops,
+    };
+
+    let proof = BatchProofV09 {
+        proof_format_version: crate::transcript_v09::PROOF_FORMAT_VERSION_V09,
+        header: header.serialize(),
+        body,
+    };
+
+    let verify = verify_batch_v09(params, &commitment, &proof)?;
+    let challenges =
+        derive_zs_batch_v09(params, &commitment, &proof.body.folded_roots)
+            .ok_or(BatchVerifyErrorV09::InvalidProof)?;
+
+    let nword = 1usize << (family.n + family.k);
+    let base_bytes = bt * nword * 16;
+    let ext_bytes = bt * (nword / 2) * 32;
+    let tree_bytes = (nword / 2) * 2 * 32;
+    let committed_est = if params.commit_every >= usize::BITS as usize {
+        0
+    } else {
+        ext_bytes
+            / ((1usize << params.commit_every)
+                .saturating_sub(1)
+                .max(1))
+    };
+
+    let peak = if stream {
+        base_bytes.max(ext_bytes) + tree_bytes + committed_est
+    } else {
+        base_bytes + ext_bytes + tree_bytes + committed_est
+    };
+
+    Ok(BatchTimingsV09 {
+        encode: encode_t,
+        commit0,
+        fold_total,
+        commit_folds,
+        query_open,
+        grind,
+        verify,
+        commitment,
+        proof,
+        verified: true,
+        challenges,
+        peak_memory_estimate_bytes: peak,
+    })
+}
+
+
+#[cfg(test)]
+mod v09_batch_transcript_tests {
+    use super::*;
+    use crate::{
+        security::soundness_bits_from,
+        transcript_v09::ParamsV09,
+    };
+
+    fn required_s(n: usize, k: usize, i0: usize, g: u32, target: u32) -> usize {
+        soundness_bits_from(
+            n,
+            k,
+            128.0,
+            256.0,
+            g as f64,
+            (target - 128) as f64,
+            i0,
+        ).s
+    }
+
+    fn params_for(
+        n: usize,
+        k: usize,
+        t: usize,
+        seed: u64,
+        setup_counter: u64,
+    ) -> ParamsV09 {
+        ParamsV09 {
+            n,
+            k,
+            i0: 3,
+            s: required_s(n, k, 3, 0, 192),
+            g: 0,
+            t,
+            commit_every: 3.min(n),
+            gate_seed: seed,
+            setup_counter,
+            hash_kind: HashKind::Blake3,
+            target_bits: 192,
+        }
+    }
+
+    fn coeff_batches(t: usize, n: usize) -> Vec<Vec<F128>> {
+        (0..t)
+            .map(|c| {
+                (0..(1usize << n))
+                    .map(|i| F128(1 + (c as u128) * 100_000 + i as u128))
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn make_batch(n: usize, t: usize) -> (ParamsV09, BatchTimingsV09) {
+        let seed = 0xB47C0u64 + n as u64 + t as u64;
+        let k = 2usize;
+        let checked = GateFamily::from_seed_checked_i0_3(n, k, seed);
+        let p = params_for(n, k, t, seed, checked.counter);
+        let cs = coeff_batches(t, n);
+        let run = prove_and_verify_batch_v09(&cs, &checked.family, &p).unwrap();
+        (p, run)
+    }
+
+    #[test]
+    fn v09_round_trip_batch_n8_n10_n12() {
+        for n in [8usize, 10, 12] {
+            let (_p, run) = make_batch(n, 4);
+            assert!(run.verified, "n={n}");
+        }
+    }
+
+    #[test]
+    fn v09_batch_last_layer_binds_queries() {
+        let (p, run) = make_batch(8, 4);
+        let mut bad = run.proof.clone();
+        bad.body.evals[1] += F256::ONE;
+        assert!(verify_batch_v09(&p, &run.commitment, &bad).is_err());
+    }
+
+    #[test]
+    fn v09_batch_header_copy_corruption_rejected() {
+        let (p, run) = make_batch(8, 4);
+        let mut bad = run.proof.clone();
+        let i = bad.header.len() / 2;
+        bad.header[i] ^= 1;
+        assert!(matches!(
+            verify_batch_v09(&p, &run.commitment, &bad),
+            Err(BatchVerifyErrorV09::HeaderMismatch)
+        ));
+    }
+}

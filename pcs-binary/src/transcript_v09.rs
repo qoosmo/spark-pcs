@@ -227,6 +227,155 @@ fn put_lp(out: &mut Vec<u8>, bytes: &[u8]) {
     out.extend_from_slice(bytes);
 }
 
+
+use rayon::prelude::*;
+use sha2::{Digest, Sha256};
+
+fn hash_parts_v09(kind: HashKind, parts: &[&[u8]]) -> [u8; 32] {
+    match kind {
+        HashKind::Blake3 => {
+            let mut h = blake3::Hasher::new();
+            for p in parts {
+                h.update(p);
+            }
+            *h.finalize().as_bytes()
+        }
+        HashKind::Sha256 => {
+            let mut h = Sha256::new();
+            for p in parts {
+                h.update(p);
+            }
+            h.finalize().into()
+        }
+    }
+}
+
+/// Canonical v0.9 transcript start: header first, then the initial root.
+pub fn initial_state_v09(header: &TranscriptHeaderV09, commitment: &[u8; 32]) -> Vec<u8> {
+    let mut st = header.serialize();
+    st.extend_from_slice(commitment);
+    st
+}
+
+pub fn challenge_field_v09(
+    state: &[u8],
+    label: &[u8],
+    counter: u64,
+    kind: HashKind,
+) -> F256 {
+    F256::from_le_bytes(hash_parts_v09(
+        kind,
+        &[
+            b"SPARK-FS-CHALLENGE-v0.9",
+            label,
+            &counter.to_le_bytes(),
+            state,
+        ],
+    ))
+}
+
+pub fn challenge_index_v09(
+    state: &[u8],
+    counter: u64,
+    modulus: usize,
+    kind: HashKind,
+) -> usize {
+    let d = hash_parts_v09(
+        kind,
+        &[b"SPARK-QUERY-v0.9", &counter.to_le_bytes(), state],
+    );
+    let mut b = [0u8; 8];
+    b.copy_from_slice(&d[..8]);
+    (u64::from_le_bytes(b) as usize) % modulus
+}
+
+pub fn append_single_last_v09(state: &mut Vec<u8>, eval: F256) {
+    state.extend_from_slice(b"SPARK-LAST-v0.9");
+    state.extend_from_slice(&eval.to_le_bytes());
+}
+
+pub fn append_batch_last_v09(state: &mut Vec<u8>, evals: &[F256]) {
+    state.extend_from_slice(b"SPARK-BATCH-LAST-v0.9");
+    state.extend_from_slice(&(evals.len() as u32).to_le_bytes());
+    for e in evals {
+        state.extend_from_slice(&e.to_le_bytes());
+    }
+}
+
+fn leading_zero_bits_v09(d: &[u8; 32]) -> u32 {
+    let mut z = 0u32;
+    for &b in d {
+        if b == 0 {
+            z += 8;
+        } else {
+            z += b.leading_zeros();
+            break;
+        }
+    }
+    z
+}
+
+pub fn grind_seed_v09(state_with_last: &[u8], kind: HashKind) -> [u8; 32] {
+    hash_parts_v09(kind, &[b"SPARK-GRIND-SEED-v0.9", state_with_last])
+}
+
+pub fn valid_grind_nonce_v09(
+    seed: &[u8; 32],
+    nonce: u64,
+    bits: u32,
+    kind: HashKind,
+) -> bool {
+    if bits == 0 {
+        return nonce == 0;
+    }
+    let d = hash_parts_v09(
+        kind,
+        &[b"SPARK-GRIND-v0.9", seed, &nonce.to_le_bytes()],
+    );
+    leading_zero_bits_v09(&d) >= bits
+}
+
+pub fn find_grind_nonce_v09(seed: &[u8; 32], bits: u32, kind: HashKind) -> u64 {
+    assert!(bits <= 32);
+    if bits == 0 {
+        return 0;
+    }
+    const CHUNK: u64 = 1 << 16;
+    let mut start = 0u64;
+    loop {
+        let end = start.checked_add(CHUNK).expect("grinding nonce overflow");
+        if let Some(nonce) = (start..end)
+            .into_par_iter()
+            .filter(|&n| valid_grind_nonce_v09(seed, n, bits, kind))
+            .min()
+        {
+            return nonce;
+        }
+        start = end;
+    }
+}
+
+pub fn append_nonce_v09(state: &mut Vec<u8>, nonce: Option<u64>) {
+    if let Some(n) = nonce {
+        state.extend_from_slice(b"SPARK-GRIND-NONCE-v0.9");
+        state.extend_from_slice(&n.to_le_bytes());
+    }
+}
+
+pub fn derive_queries_v09(
+    state_after_last: &[u8],
+    nonce: Option<u64>,
+    s: usize,
+    leaves: usize,
+    kind: HashKind,
+) -> Vec<usize> {
+    let mut st = state_after_last.to_vec();
+    append_nonce_v09(&mut st, nonce);
+    (0..s)
+        .map(|i| challenge_index_v09(&st, i as u64, leaves, kind))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -880,3 +880,593 @@ mod sparse_auth_tests {
         assert!(!ok);
     }
 }
+
+
+// -----------------------------------------------------------------------------
+// SPARK v0.9 transcript wrapper.
+// This code intentionally reuses the v0.8 encoding, gates, Merkle layout,
+// folding equations, and query-opening logic. Only Fiat--Shamir state
+// construction and verifier-side parameter validation change.
+// -----------------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct SparseProofV09 {
+    pub proof_format_version: u8,
+    pub header: Vec<u8>,
+    pub body: SparseProofV06,
+}
+
+impl SparseProofV09 {
+    pub fn serialized_size_bytes(&self) -> usize {
+        1 + 4 + self.header.len() + self.body.serialized_size_bytes()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VerifyErrorV09 {
+    VersionMismatch { expected: u8, got: u8 },
+    InvalidParams(String),
+    HeaderMismatch,
+    InvalidProof,
+}
+
+#[derive(Debug)]
+pub struct SparseTimingsV09 {
+    pub encode: Duration,
+    pub commit0: Duration,
+    pub fold_total: Duration,
+    pub commit_folds: Duration,
+    pub query_open: Duration,
+    pub grind: Duration,
+    pub verify: VerifyProfileV07,
+    pub commitment: Hash,
+    pub proof: SparseProofV09,
+    pub verified: bool,
+    pub challenges: Vec<F256>,
+}
+
+impl SparseTimingsV09 {
+    pub fn prover_total(&self) -> Duration {
+        self.encode + self.commit0 + self.fold_total + self.commit_folds + self.query_open + self.grind
+    }
+
+    pub fn verify_total(&self) -> Duration {
+        self.verify.total()
+    }
+}
+
+fn derive_zs_sparse_v09(
+    params: &crate::transcript_v09::ParamsV09,
+    commitment: &Hash,
+    roots: &[Hash],
+) -> Option<Vec<F256>> {
+    let header = params.header().ok()?;
+    let boundaries = committed_boundaries(params.n, params.commit_every);
+    if roots.len() != boundaries.len() {
+        return None;
+    }
+
+    let mut st = crate::transcript_v09::initial_state_v09(&header, commitment);
+    let mut zs = Vec::with_capacity(params.n);
+    let mut ri = 0usize;
+
+    for r in 0..params.n {
+        let z = crate::transcript_v09::challenge_field_v09(
+            &st,
+            b"fold",
+            r as u64,
+            params.hash_kind,
+        );
+        zs.push(z);
+
+        let b = r + 1;
+        if b < params.n && b % params.commit_every == 0 {
+            st.extend_from_slice(&roots[ri]);
+            ri += 1;
+        }
+    }
+    Some(zs)
+}
+
+fn final_state_sparse_v09(
+    params: &crate::transcript_v09::ParamsV09,
+    commitment: &Hash,
+    roots: &[Hash],
+    eval: F256,
+) -> Option<Vec<u8>> {
+    let header = params.header().ok()?;
+    let boundaries = committed_boundaries(params.n, params.commit_every);
+    if roots.len() != boundaries.len() {
+        return None;
+    }
+
+    let mut st = crate::transcript_v09::initial_state_v09(&header, commitment);
+    for root in roots {
+        st.extend_from_slice(root);
+    }
+    crate::transcript_v09::append_single_last_v09(&mut st, eval);
+    Some(st)
+}
+
+/// v0.9 verifier. Parameter validation happens before proof-body access.
+pub fn verify_sparse_v09(
+    params: &crate::transcript_v09::ParamsV09,
+    commitment: &Hash,
+    proof: &SparseProofV09,
+) -> Result<VerifyProfileV07, VerifyErrorV09> {
+    let total_start = Instant::now();
+    let mut profile = VerifyProfileV07::default();
+
+    params.validate().map_err(VerifyErrorV09::InvalidParams)?;
+
+    if proof.proof_format_version != crate::transcript_v09::PROOF_FORMAT_VERSION_V09 {
+        return Err(VerifyErrorV09::VersionMismatch {
+            expected: crate::transcript_v09::PROOF_FORMAT_VERSION_V09,
+            got: proof.proof_format_version,
+        });
+    }
+
+    let expected_header = params
+        .header()
+        .map_err(VerifyErrorV09::InvalidParams)?
+        .serialize();
+    if proof.header != expected_header {
+        return Err(VerifyErrorV09::HeaderMismatch);
+    }
+
+    let transcript_start = Instant::now();
+    let boundaries = committed_boundaries(params.n, params.commit_every);
+    if proof.body.folded_roots.len() != boundaries.len()
+        || proof.body.folded_openings.len() != boundaries.len()
+    {
+        return Err(VerifyErrorV09::InvalidProof);
+    }
+
+    let zs = derive_zs_sparse_v09(params, commitment, &proof.body.folded_roots)
+        .ok_or(VerifyErrorV09::InvalidProof)?;
+
+    let leaves0 = 1usize << (params.n + params.k - 1);
+    let final_state = final_state_sparse_v09(
+        params,
+        commitment,
+        &proof.body.folded_roots,
+        proof.body.eval,
+    )
+    .ok_or(VerifyErrorV09::InvalidProof)?;
+
+    let gs = crate::transcript_v09::grind_seed_v09(&final_state, params.hash_kind);
+    let nonce = match (params.g, proof.body.grind_nonce) {
+        (0, None) => None,
+        (0, Some(_)) => return Err(VerifyErrorV09::InvalidProof),
+        (_, Some(x))
+            if crate::transcript_v09::valid_grind_nonce_v09(
+                &gs,
+                x,
+                params.g,
+                params.hash_kind,
+            ) =>
+        {
+            Some(x)
+        }
+        _ => return Err(VerifyErrorV09::InvalidProof),
+    };
+
+    let q0s = crate::transcript_v09::derive_queries_v09(
+        &final_state,
+        nonce,
+        params.s,
+        leaves0,
+        params.hash_kind,
+    );
+    let keys = collect_sparse_gate_keys(params.n, &q0s, params.commit_every);
+    profile.transcript = transcript_start.elapsed();
+
+    let gate_start = Instant::now();
+    let (gates, gate_prf, gate_batch_inverse, gate_build) =
+        derive_sparse_gates_profiled(params.gate_seed, params.setup_counter, &keys);
+    profile.gate_derivation = gate_start.elapsed();
+    profile.gate_prf = gate_prf;
+    profile.gate_batch_inverse = gate_batch_inverse;
+    profile.gate_build = gate_build;
+
+    let lambda_start = Instant::now();
+    let fold_lambdas = derive_fold_lambdas(params.n, &keys, &gates, &zs);
+    profile.folding += lambda_start.elapsed();
+
+    let d0 = params.commit_every.min(params.n);
+    let ix0 = source_pair_indices(&q0s, 0, d0);
+
+    let merkle_start = Instant::now();
+    let ok0 = MerkleTreeV05::<F128>::verify_pairs(
+        commitment,
+        leaves0,
+        &ix0,
+        &proof.body.opening0,
+        params.hash_kind,
+    );
+    profile.merkle += merkle_start.elapsed();
+    if !ok0 {
+        return Err(VerifyErrorV09::InvalidProof);
+    }
+
+    let fold_start = Instant::now();
+    let mut known = known_from_first(
+        params.n,
+        d0,
+        &q0s,
+        &ix0,
+        &proof.body.opening0.values,
+        &keys,
+        &fold_lambdas,
+    )
+    .ok_or(VerifyErrorV09::InvalidProof)?;
+    profile.folding += fold_start.elapsed();
+
+    let mut a = d0;
+    for (j, &b) in boundaries.iter().enumerate() {
+        if b != a {
+            return Err(VerifyErrorV09::InvalidProof);
+        }
+
+        let d = params.commit_every.min(params.n - b);
+        let ix = source_pair_indices(&q0s, b, d);
+        let leaves = leaves0 >> b;
+
+        let merkle_start = Instant::now();
+        let pairs = MerkleTreeV05::<F256>::verify_pairs_compact(
+            &proof.body.folded_roots[j],
+            leaves,
+            &ix,
+            &known,
+            &proof.body.folded_openings[j],
+            params.hash_kind,
+        )
+        .ok_or(VerifyErrorV09::InvalidProof)?;
+        profile.merkle += merkle_start.elapsed();
+
+        let fold_start = Instant::now();
+        known = known_from_ext(
+            params.n,
+            b,
+            d,
+            &q0s,
+            &ix,
+            &pairs,
+            &keys,
+            &fold_lambdas,
+        )
+        .ok_or(VerifyErrorV09::InvalidProof)?;
+        profile.folding += fold_start.elapsed();
+
+        a = b + d;
+    }
+
+    if a != params.n || known.values().any(|&v| v != proof.body.eval) {
+        return Err(VerifyErrorV09::InvalidProof);
+    }
+
+    let accounted =
+        profile.transcript + profile.gate_derivation + profile.merkle + profile.folding;
+    profile.other = total_start
+        .elapsed()
+        .checked_sub(accounted)
+        .unwrap_or(Duration::ZERO);
+
+    Ok(profile)
+}
+
+pub fn prove_and_verify_sparse_v09(
+    coeffs: &[F128],
+    family: &GateFamily,
+    params: &crate::transcript_v09::ParamsV09,
+) -> Result<SparseTimingsV09, VerifyErrorV09> {
+    params.validate().map_err(VerifyErrorV09::InvalidParams)?;
+    if params.t != 1 || family.n != params.n || family.k != params.k {
+        return Err(VerifyErrorV09::InvalidParams(
+            "single-proof params/family mismatch".into(),
+        ));
+    }
+
+    let te = Instant::now();
+    let word0 = encode(coeffs, family);
+    let encode_t = te.elapsed();
+
+    let tc = Instant::now();
+    let tree0 = MerkleTreeV05::<F128>::from_pairs(&word0, params.hash_kind);
+    let commitment = tree0.root();
+    let commit0 = tc.elapsed();
+
+    let header = params.header().map_err(VerifyErrorV09::InvalidParams)?;
+    let boundaries = committed_boundaries(params.n, params.commit_every);
+    let mut committed_words = Vec::<Vec<F256>>::with_capacity(boundaries.len());
+    let mut committed_trees =
+        Vec::<MerkleTreeV05<F256>>::with_capacity(boundaries.len());
+    let mut roots = Vec::with_capacity(boundaries.len());
+    let mut state = crate::transcript_v09::initial_state_v09(&header, &commitment);
+
+    let mut fold_total = Duration::ZERO;
+    let mut commit_folds = Duration::ZERO;
+    let mut current_ext: Option<Vec<F256>> = None;
+    let mut final_word = Vec::new();
+
+    for (r, level) in family.levels.iter().rev().enumerate() {
+        let z = crate::transcript_v09::challenge_field_v09(
+            &state,
+            b"fold",
+            r as u64,
+            params.hash_kind,
+        );
+
+        let tf = Instant::now();
+        let next = if r == 0 {
+            fold_first_level(&word0, &level.gates, z)
+        } else {
+            fold_ext_level(current_ext.as_ref().unwrap(), &level.gates, z)
+        };
+        fold_total += tf.elapsed();
+
+        let b = r + 1;
+        if b < family.n && b % params.commit_every == 0 {
+            let tc = Instant::now();
+            let tree = MerkleTreeV05::<F256>::from_pairs(&next, params.hash_kind);
+            let root = tree.root();
+            commit_folds += tc.elapsed();
+
+            roots.push(root);
+            state.extend_from_slice(&root);
+            committed_words.push(next.clone());
+            committed_trees.push(tree);
+        }
+
+        if b == family.n {
+            final_word = next.clone();
+        }
+        current_ext = Some(next);
+    }
+
+    let eval = final_word[0];
+    debug_assert!(final_word.iter().all(|x| *x == eval));
+
+    let mut final_state = state.clone();
+    crate::transcript_v09::append_single_last_v09(&mut final_state, eval);
+    let gs = crate::transcript_v09::grind_seed_v09(&final_state, params.hash_kind);
+
+    let tg = Instant::now();
+    let nonce = if params.g == 0 {
+        None
+    } else {
+        Some(crate::transcript_v09::find_grind_nonce_v09(
+            &gs,
+            params.g,
+            params.hash_kind,
+        ))
+    };
+    let grind = tg.elapsed();
+
+    let tq = Instant::now();
+    let leaves0 = 1usize << (family.n + family.k - 1);
+    let q0s = crate::transcript_v09::derive_queries_v09(
+        &final_state,
+        nonce,
+        params.s,
+        leaves0,
+        params.hash_kind,
+    );
+    let d0 = params.commit_every.min(family.n);
+    let ix0 = source_pair_indices(&q0s, 0, d0);
+    let opening0 = tree0.open_pairs(&word0, &ix0);
+    let mut fops = Vec::with_capacity(boundaries.len());
+
+    for (j, &b) in boundaries.iter().enumerate() {
+        let d = params.commit_every.min(family.n - b);
+        let ix = source_pair_indices(&q0s, b, d);
+        let known_positions = target_positions(&q0s, b);
+        fops.push(committed_trees[j].open_pairs_compact(
+            &committed_words[j],
+            &ix,
+            &known_positions,
+        ));
+    }
+    let query_open = tq.elapsed();
+
+    let body = SparseProofV06 {
+        folded_roots: roots,
+        eval,
+        grind_nonce: nonce,
+        opening0,
+        folded_openings: fops,
+    };
+
+    let proof = SparseProofV09 {
+        proof_format_version: crate::transcript_v09::PROOF_FORMAT_VERSION_V09,
+        header: header.serialize(),
+        body,
+    };
+
+    let verify = verify_sparse_v09(params, &commitment, &proof)?;
+    let challenges =
+        derive_zs_sparse_v09(params, &commitment, &proof.body.folded_roots)
+            .ok_or(VerifyErrorV09::InvalidProof)?;
+
+    Ok(SparseTimingsV09 {
+        encode: encode_t,
+        commit0,
+        fold_total,
+        commit_folds,
+        query_open,
+        grind,
+        verify,
+        commitment,
+        proof,
+        verified: true,
+        challenges,
+    })
+}
+
+
+#[cfg(test)]
+mod v09_transcript_tests {
+    use super::*;
+    use crate::{
+        security::soundness_bits_from,
+        transcript_v09::{ParamsV09, PROOF_FORMAT_VERSION_V09},
+    };
+
+    fn required_s(n: usize, k: usize, i0: usize, g: u32, target: u32) -> usize {
+        soundness_bits_from(
+            n,
+            k,
+            128.0,
+            256.0,
+            g as f64,
+            (target - 128) as f64,
+            i0,
+        ).s
+    }
+
+    fn params_for(
+        n: usize,
+        k: usize,
+        i0: usize,
+        g: u32,
+        t: usize,
+        commit_every: usize,
+        seed: u64,
+        setup_counter: u64,
+    ) -> ParamsV09 {
+        ParamsV09 {
+            n,
+            k,
+            i0,
+            s: required_s(n, k, i0, g, 192),
+            g,
+            t,
+            commit_every,
+            gate_seed: seed,
+            setup_counter,
+            hash_kind: HashKind::Blake3,
+            target_bits: 192,
+        }
+    }
+
+    fn coeffs(n: usize) -> Vec<F128> {
+        (0..(1usize << n)).map(|i| F128((i as u128) + 1)).collect()
+    }
+
+    fn make_single(n: usize) -> (ParamsV09, SparseTimingsV09) {
+        let seed = 0xA11CEu64 + n as u64;
+        let k = 2usize;
+        let checked = GateFamily::from_seed_checked_i0_3(n, k, seed);
+        let p = params_for(n, k, 3, 0, 1, 3.min(n), seed, checked.counter);
+        let run = prove_and_verify_sparse_v09(&coeffs(n), &checked.family, &p).unwrap();
+        (p, run)
+    }
+
+    #[test]
+    fn v09_round_trip_single_n8_n10_n12() {
+        for n in [8usize, 10, 12] {
+            let (_p, run) = make_single(n);
+            assert!(run.verified, "n={n}");
+        }
+    }
+
+    #[test]
+    fn v09_parameter_mismatch_matrix_rejects() {
+        let (p, run) = make_single(8);
+
+        macro_rules! reject_with {
+            ($name:literal, $mutator:expr) => {{
+                let mut q = p.clone();
+                $mutator(&mut q);
+                assert!(
+                    verify_sparse_v09(&q, &run.commitment, &run.proof).is_err(),
+                    "parameter mutation unexpectedly verified: {}",
+                    $name
+                );
+            }};
+        }
+
+        reject_with!("n", |q: &mut ParamsV09| q.n += 1);
+        reject_with!("k", |q: &mut ParamsV09| q.k += 1);
+        reject_with!("i0", |q: &mut ParamsV09| q.i0 = 2);
+        reject_with!("s", |q: &mut ParamsV09| q.s += 1);
+        reject_with!("g", |q: &mut ParamsV09| q.g = 1);
+        reject_with!("t", |q: &mut ParamsV09| q.t = 2);
+        reject_with!("schedule", |q: &mut ParamsV09| q.commit_every = 2);
+        reject_with!("gate_seed", |q: &mut ParamsV09| q.gate_seed ^= 1);
+        reject_with!("setup_counter", |q: &mut ParamsV09| q.setup_counter ^= 1);
+    }
+
+    #[test]
+    fn v09_domain_separator_corruption_rejected() {
+        let (p, run) = make_single(8);
+        let mut bad = run.proof.clone();
+        assert!(bad.header.len() > 4);
+        bad.header[4] ^= 1;
+        assert!(matches!(
+            verify_sparse_v09(&p, &run.commitment, &bad),
+            Err(VerifyErrorV09::HeaderMismatch)
+        ));
+    }
+
+    #[test]
+    fn v09_proof_format_version_rejected_clearly() {
+        let (p, run) = make_single(8);
+        let mut bad = run.proof.clone();
+        bad.proof_format_version = 8;
+        assert!(matches!(
+            verify_sparse_v09(&p, &run.commitment, &bad),
+            Err(VerifyErrorV09::VersionMismatch {
+                expected: PROOF_FORMAT_VERSION_V09,
+                got: 8,
+            })
+        ));
+    }
+
+    #[test]
+    fn v09_header_copy_corruption_rejected() {
+        let (p, run) = make_single(8);
+        let mut bad = run.proof.clone();
+        let i = bad.header.len() / 2;
+        bad.header[i] ^= 0x80;
+        assert!(matches!(
+            verify_sparse_v09(&p, &run.commitment, &bad),
+            Err(VerifyErrorV09::HeaderMismatch)
+        ));
+    }
+
+    #[test]
+    fn v08_body_wrapped_as_v09_is_rejected_by_version() {
+        let n = 8usize;
+        let k = 2usize;
+        let seed = 0x808u64;
+        let checked = GateFamily::from_seed_checked_i0_3(n, k, seed);
+        let p = params_for(n, k, 3, 0, 1, 3, seed, checked.counter);
+
+        let old = prove_and_verify_sparse_v06(
+            &coeffs(n),
+            &checked.family,
+            seed,
+            checked.counter,
+            p.s,
+            p.g,
+            p.commit_every,
+            p.hash_kind,
+        );
+        assert!(old.verified);
+
+        let wrapped = SparseProofV09 {
+            proof_format_version: 8,
+            header: Vec::new(),
+            body: old.proof,
+        };
+
+        assert!(matches!(
+            verify_sparse_v09(&p, &old.commitment, &wrapped),
+            Err(VerifyErrorV09::VersionMismatch {
+                expected: PROOF_FORMAT_VERSION_V09,
+                got: 8,
+            })
+        ));
+    }
+}
