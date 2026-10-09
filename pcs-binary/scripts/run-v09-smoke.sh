@@ -7,7 +7,7 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT="${OUT:-$ROOT/v09-smoke-$STAMP}"
 
 REPO="$(git -C "$ROOT" rev-parse --show-toplevel)"
-RELEASE_SOURCE_COMMIT="$(git -C "$REPO" rev-parse '6162a25^{commit}')"
+RELEASE_SOURCE_COMMIT="$(git -C "$REPO" rev-parse '5468905^{commit}')"
 
 if git -C "$REPO" diff --quiet "$RELEASE_SOURCE_COMMIT" -- \
   pcs-binary/src/encode.rs \
