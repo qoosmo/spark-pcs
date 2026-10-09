@@ -16,7 +16,14 @@ BIN_DIR="$TARGET_DIR/release"
 echo "=== SPARK v0.8 FINAL GRID ===" | tee "$OUT/README.txt"
 {
   echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  echo "commit=$(git rev-parse HEAD)"
+  echo "release_source_commit=b8e80812856965bb8b7501e0459e58fc0fbbdab2"
+  echo "release_source_dirty=false"
+  echo "public_repo_commit=$(git rev-parse HEAD)"
+  if [[ -z "$(git status --porcelain)" ]]; then
+    echo "public_repo_dirty=false"
+  else
+    echo "public_repo_dirty=true"
+  fi
   echo "branch=$(git rev-parse --abbrev-ref HEAD)"
   echo "rustc=$(rustc --version)"
   echo "cargo=$(cargo --version)"
@@ -50,10 +57,20 @@ for threads in 1 8; do
       t="$1"; m="$2"
       name="n${n}-t${t}-m${m}-thr${threads}"
       echo "=== $name ==="
-      RAYON_NUM_THREADS="$threads" \
-        /usr/bin/time -l \
-        "$BIN_DIR/brief12_batch_bench" "$t" "$m" "$RUNS" "$n" \
-        > "$OUT/$name.txt" 2> "$OUT/$name.time.txt"
+      {
+        echo "release_source_commit=b8e80812856965bb8b7501e0459e58fc0fbbdab2"
+        echo "release_source_dirty=false"
+        echo "public_repo_commit=$(git rev-parse HEAD)"
+        if [[ -z "$(git status --porcelain)" ]]; then
+          echo "public_repo_dirty=false"
+        else
+          echo "public_repo_dirty=true"
+        fi
+        RAYON_NUM_THREADS="$threads" \
+          /usr/bin/time -l \
+          "$BIN_DIR/brief12_batch_bench" "$t" "$m" "$RUNS" "$n" \
+          2> "$OUT/$name.time.txt"
+      } > "$OUT/$name.txt"
 
       grep -q "^verified_runs=${RUNS}/${RUNS}$" "$OUT/$name.txt"
       grep -E '^(brief12b_|n=|delta_code=|fold_term_bits=|setup_ms=|encode_ms=|commit0_ms=|fold_ms=|commit_folds_ms=|grind_ms=|openings_ms=|prover_ms=|prover_per_poly_ms=|verify_ms=|verify_per_poly_ms=|proof_bytes=|proof_kib=|proof_per_poly_kib=|field_bytes=|hash_bytes=|peak_memory_estimate_|verified_runs=)' "$OUT/$name.txt"

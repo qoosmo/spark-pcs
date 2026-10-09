@@ -20,6 +20,7 @@ def rss(path):
     return m.group(1) if m else ""
 
 rows = []
+envd = parse_file(out / "environment.txt")
 
 pat = re.compile(r'n(\d+)-t(\d+)-m(\d+)-thr(\d+)\.txt$')
 
@@ -33,6 +34,10 @@ for f in sorted(out.glob("n*-t*-m*-thr*.txt")):
     sd = parse_file(out / f"setup-n{n}.txt")
 
     row = {
+        "release_source_commit": envd.get("release_source_commit", ""),
+        "release_source_dirty": envd.get("release_source_dirty", ""),
+        "public_repo_commit": envd.get("public_repo_commit", ""),
+        "public_repo_dirty": envd.get("public_repo_dirty", ""),
         "n": n,
         "k": d.get("k", ""),
         "i0": d.get("i0", ""),
