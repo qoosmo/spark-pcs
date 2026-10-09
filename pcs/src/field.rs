@@ -1,3 +1,5 @@
+#![allow(clippy::should_implement_trait)]
+
 //! Goldilocks field F_p, p = 2^64 - 2^32 + 1, and its cubic extension F_p[x]/(x^3 - W).
 
 use std::sync::OnceLock;
@@ -35,11 +37,19 @@ impl Fp {
     #[inline]
     pub fn add(self, o: Fp) -> Fp {
         let s = self.0 as u128 + o.0 as u128;
-        Fp(if s >= P as u128 { (s - P as u128) as u64 } else { s as u64 })
+        Fp(if s >= P as u128 {
+            (s - P as u128) as u64
+        } else {
+            s as u64
+        })
     }
     #[inline]
     pub fn sub(self, o: Fp) -> Fp {
-        Fp(if self.0 >= o.0 { self.0 - o.0 } else { self.0.wrapping_sub(o.0).wrapping_add(P) })
+        Fp(if self.0 >= o.0 {
+            self.0 - o.0
+        } else {
+            self.0.wrapping_sub(o.0).wrapping_add(P)
+        })
     }
     #[inline]
     pub fn neg(self) -> Fp {
@@ -113,11 +123,19 @@ impl Fe3 {
     }
     #[inline]
     pub fn add(self, o: Fe3) -> Fe3 {
-        Fe3([self.0[0].add(o.0[0]), self.0[1].add(o.0[1]), self.0[2].add(o.0[2])])
+        Fe3([
+            self.0[0].add(o.0[0]),
+            self.0[1].add(o.0[1]),
+            self.0[2].add(o.0[2]),
+        ])
     }
     #[inline]
     pub fn sub(self, o: Fe3) -> Fe3 {
-        Fe3([self.0[0].sub(o.0[0]), self.0[1].sub(o.0[1]), self.0[2].sub(o.0[2])])
+        Fe3([
+            self.0[0].sub(o.0[0]),
+            self.0[1].sub(o.0[1]),
+            self.0[2].sub(o.0[2]),
+        ])
     }
     #[inline]
     pub fn mul_base(self, s: Fp) -> Fe3 {
@@ -162,7 +180,9 @@ mod tests {
     fn mul_matches_u128() {
         let mut x = 0x1234_5678_9abc_def0u64;
         for _ in 0..10_000 {
-            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let a = Fp::new(x);
             let b = Fp::new(x.rotate_left(17) ^ 0xdead_beef);
             let expect = ((a.0 as u128 * b.0 as u128) % P as u128) as u64;

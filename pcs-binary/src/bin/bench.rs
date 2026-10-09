@@ -27,7 +27,10 @@ fn main() {
             ds.sort();
 
             let d = ds.last().unwrap();
-            println!("{}", fs::read_to_string(d.join("v08-final-grid.tex")).unwrap());
+            println!(
+                "{}",
+                fs::read_to_string(d.join("v08-final-grid.tex")).unwrap()
+            );
             println!("RESULT_DIR={}", d.display());
         }
 

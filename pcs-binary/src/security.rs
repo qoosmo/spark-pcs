@@ -16,11 +16,11 @@ pub struct SecurityReport {
 fn log_gamma(z: f64) -> f64 {
     // Lanczos, adequate for benchmark parameter selection.
     const P: [f64; 9] = [
-        0.99999999999980993,
+        0.999_999_999_999_809_9,
         676.5203681218851,
         -1259.1392167224028,
-        771.32342877765313,
-        -176.61502916214059,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
         12.507343278686905,
         -0.13857109526572012,
         9.984369578019571e-6,
@@ -49,13 +49,7 @@ fn log2_binom(n: usize, k: usize) -> f64 {
 
 /// Checked-setup rank-saturation certificate starting from an MDS prefix C_i0.
 /// Theorem 3.19 permits any checked i0.
-pub fn certified_delta_from(
-    n: usize,
-    k: usize,
-    log2q_gates: f64,
-    lambda: f64,
-    i0: usize,
-) -> f64 {
+pub fn certified_delta_from(n: usize, k: usize, log2q_gates: f64, lambda: f64, i0: usize) -> f64 {
     assert!(i0 >= 1 && n >= i0);
     let levels = n - i0;
     let per = lambda + (levels as f64).log2().ceil();
@@ -178,7 +172,6 @@ mod tests {
         let r = soundness_bits_from(20, 2, 128.0, 256.0, 16.0, 64.0, 3);
         assert!((r.s as isize - 407).abs() <= 1, "{}", r.s);
     }
-
 
     #[test]
     fn brief11b_absorption_constant_regression() {

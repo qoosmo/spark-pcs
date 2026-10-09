@@ -57,11 +57,15 @@ pub fn encode(params: &Params, coeffs: &[Fp]) -> Vec<Fp> {
 }
 
 fn base_leaves(e: &[Fp]) -> Vec<Vec<u8>> {
-    e.chunks(2).map(|c| [c[0].to_bytes(), c[1].to_bytes()].concat()).collect()
+    e.chunks(2)
+        .map(|c| [c[0].to_bytes(), c[1].to_bytes()].concat())
+        .collect()
 }
 
 fn ext_leaves(e: &[Fe3]) -> Vec<Vec<u8>> {
-    e.chunks(2).map(|c| [c[0].to_bytes(), c[1].to_bytes()].concat()).collect()
+    e.chunks(2)
+        .map(|c| [c[0].to_bytes(), c[1].to_bytes()].concat())
+        .collect()
 }
 
 fn base_leaf(w0: Fp, w1: Fp) -> Vec<u8> {
@@ -123,7 +127,10 @@ pub fn prove_inner(
         let next: Vec<Fe3> = (0..nodes)
             .map(|q| {
                 let (w0, w1) = if j == 1 {
-                    (Fe3::from_base(fold_e0[2 * q]), Fe3::from_base(fold_e0[2 * q + 1]))
+                    (
+                        Fe3::from_base(fold_e0[2 * q]),
+                        Fe3::from_base(fold_e0[2 * q + 1]),
+                    )
                 } else {
                     let prev = &layers[j - 2];
                     (prev[2 * q], prev[2 * q + 1])
@@ -157,9 +164,21 @@ pub fn prove_inner(
             let layer = &layers[j - 2];
             ext_blocks.push((layer[2 * q], layer[2 * q + 1], trees[j - 2].open(q)));
         }
-        queries.push(Query { base_block, base_path, ext_blocks });
+        queries.push(Query {
+            base_block,
+            base_path,
+            ext_blocks,
+        });
     }
-    (y, zs, Proof { roots, last, queries })
+    (
+        y,
+        zs,
+        Proof {
+            roots,
+            last,
+            queries,
+        },
+    )
 }
 
 /// Returns (y, z) if the proof is accepted.
@@ -245,11 +264,21 @@ mod tests {
     use super::*;
 
     fn params(n: usize, k: usize, s: usize) -> Params {
-        Params { n, k, s, seed: [7u8; 32], delta_star: 0.5, delta: 0.2, log2_bad_challenge: -130.0 }
+        Params {
+            n,
+            k,
+            s,
+            seed: [7u8; 32],
+            delta_star: 0.5,
+            delta: 0.2,
+            log2_bad_challenge: -130.0,
+        }
     }
 
     fn poly(n: usize, salt: u64) -> Vec<Fp> {
-        (0..1u64 << n).map(|i| Fp::new(i.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ salt)).collect()
+        (0..1u64 << n)
+            .map(|i| Fp::new(i.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ salt))
+            .collect()
     }
 
     #[test]
@@ -274,7 +303,11 @@ mod tests {
             let r: Vec<Fe3> = (1..=p.n)
                 .map(|j| {
                     let g = gate(&p.seed, j, omega >> j);
-                    Fe3::from_base(if (omega >> (j - 1)) & 1 == 0 { g.t0 } else { g.t1 })
+                    Fe3::from_base(if (omega >> (j - 1)) & 1 == 0 {
+                        g.t0
+                    } else {
+                        g.t1
+                    })
                 })
                 .collect();
             assert_eq!(Fe3::from_base(val), eval_multilinear(&f, &r));

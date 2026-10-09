@@ -5,7 +5,7 @@
 //! matter for the protocol (the scales c, d act as a public diagonal), so we derive
 //! (t0, t1) directly: two distinct field elements from SHA-256(seed, j, q).
 
-use crate::field::{batch_inverse, Fp, P};
+use crate::field::{Fp, P, batch_inverse};
 use sha2::{Digest, Sha256};
 
 #[derive(Clone, Copy, Debug)]
@@ -27,7 +27,10 @@ pub fn gate(seed: &[u8; 32], j: usize, q: usize) -> Gate {
         let x0 = u64::from_le_bytes(d[0..8].try_into().unwrap());
         let x1 = u64::from_le_bytes(d[8..16].try_into().unwrap());
         if x0 < P && x1 < P && x0 != x1 {
-            return Gate { t0: Fp(x0), t1: Fp(x1) };
+            return Gate {
+                t0: Fp(x0),
+                t1: Fp(x1),
+            };
         }
         ctr += 1;
     }

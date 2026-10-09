@@ -227,7 +227,6 @@ fn put_lp(out: &mut Vec<u8>, bytes: &[u8]) {
     out.extend_from_slice(bytes);
 }
 
-
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
@@ -257,12 +256,7 @@ pub fn initial_state_v09(header: &TranscriptHeaderV09, commitment: &[u8; 32]) ->
     st
 }
 
-pub fn challenge_field_v09(
-    state: &[u8],
-    label: &[u8],
-    counter: u64,
-    kind: HashKind,
-) -> F256 {
+pub fn challenge_field_v09(state: &[u8], label: &[u8], counter: u64, kind: HashKind) -> F256 {
     F256::from_le_bytes(hash_parts_v09(
         kind,
         &[
@@ -274,16 +268,8 @@ pub fn challenge_field_v09(
     ))
 }
 
-pub fn challenge_index_v09(
-    state: &[u8],
-    counter: u64,
-    modulus: usize,
-    kind: HashKind,
-) -> usize {
-    let d = hash_parts_v09(
-        kind,
-        &[b"SPARK-QUERY-v0.9", &counter.to_le_bytes(), state],
-    );
+pub fn challenge_index_v09(state: &[u8], counter: u64, modulus: usize, kind: HashKind) -> usize {
+    let d = hash_parts_v09(kind, &[b"SPARK-QUERY-v0.9", &counter.to_le_bytes(), state]);
     let mut b = [0u8; 8];
     b.copy_from_slice(&d[..8]);
     (u64::from_le_bytes(b) as usize) % modulus
@@ -319,19 +305,11 @@ pub fn grind_seed_v09(state_with_last: &[u8], kind: HashKind) -> [u8; 32] {
     hash_parts_v09(kind, &[b"SPARK-GRIND-SEED-v0.9", state_with_last])
 }
 
-pub fn valid_grind_nonce_v09(
-    seed: &[u8; 32],
-    nonce: u64,
-    bits: u32,
-    kind: HashKind,
-) -> bool {
+pub fn valid_grind_nonce_v09(seed: &[u8; 32], nonce: u64, bits: u32, kind: HashKind) -> bool {
     if bits == 0 {
         return nonce == 0;
     }
-    let d = hash_parts_v09(
-        kind,
-        &[b"SPARK-GRIND-v0.9", seed, &nonce.to_le_bytes()],
-    );
+    let d = hash_parts_v09(kind, &[b"SPARK-GRIND-v0.9", seed, &nonce.to_le_bytes()]);
     leading_zero_bits_v09(&d) >= bits
 }
 

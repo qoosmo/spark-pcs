@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use rand::{rngs::StdRng, SeedableRng};
-use spark_binary::{field::F128, fold::fold_level_precomputed, gates::Gate};
+use spark_binary::{field::F128, fold::fold_level_precomputed};
 fn bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("fold_precomputed_lambda");
     for &lg in &[14usize, 16, 18] {

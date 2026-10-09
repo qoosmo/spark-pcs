@@ -9,6 +9,6 @@ pub mod protocol;
 pub mod protocol_v05;
 pub mod security;
 
-pub mod protocol_sparse_v06;
 pub mod protocol_batch_v12;
+pub mod protocol_sparse_v06;
 pub mod transcript_v09;

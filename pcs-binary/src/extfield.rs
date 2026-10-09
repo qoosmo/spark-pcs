@@ -1,3 +1,5 @@
+#![allow(clippy::suspicious_arithmetic_impl, clippy::suspicious_op_assign_impl)]
+
 use crate::field::F128;
 use core::fmt;
 use core::ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign};
@@ -125,7 +127,7 @@ impl fmt::Debug for F256 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::{rngs::StdRng, RngCore, SeedableRng};
+    use rand::{rngs::StdRng, SeedableRng};
 
     #[test]
     fn tower_polynomial_is_irreducible() {

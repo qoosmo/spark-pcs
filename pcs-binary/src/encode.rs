@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 use crate::{
     field::{batch_inverse, F128},
     gates::Gate,
@@ -132,7 +134,7 @@ fn det4(m: [[F128; 4]; 4]) -> F128 {
     ];
     let mut d = F128::ZERO;
     for p in P {
-        d = d + m[0][p[0]] * m[1][p[1]] * m[2][p[2]] * m[3][p[3]];
+        d += m[0][p[0]] * m[1][p[1]] * m[2][p[2]] * m[3][p[3]];
     }
     d
 }
@@ -195,7 +197,6 @@ pub fn checked_prefix_is_mds(seed: u64, k: usize, counter: u64) -> bool {
     checked_prefix_is_mds_from_raw(k, &l0, &l1)
 }
 
-
 /// Return the 8-dimensional C3 generator row for one output position.
 #[inline]
 fn c3_row_from_raw(
@@ -233,8 +234,14 @@ fn c3_row_from_raw(
 #[inline]
 fn rows8_nonsingular(rows: &[[F128; 8]; 32], ix: [usize; 8]) -> bool {
     let mut a = [
-        rows[ix[0]], rows[ix[1]], rows[ix[2]], rows[ix[3]],
-        rows[ix[4]], rows[ix[5]], rows[ix[6]], rows[ix[7]],
+        rows[ix[0]],
+        rows[ix[1]],
+        rows[ix[2]],
+        rows[ix[3]],
+        rows[ix[4]],
+        rows[ix[5]],
+        rows[ix[6]],
+        rows[ix[7]],
     ];
 
     for col in 0..8 {
@@ -284,16 +291,20 @@ fn c3_is_mds_from_raw(
     let ok = AtomicBool::new(true);
 
     (0usize..=24).into_par_iter().for_each(|a| {
-        if !ok.load(Ordering::Relaxed) { return; }
+        if !ok.load(Ordering::Relaxed) {
+            return;
+        }
         for b in (a + 1)..=25 {
-            if !ok.load(Ordering::Relaxed) { return; }
+            if !ok.load(Ordering::Relaxed) {
+                return;
+            }
             for c in (b + 1)..=26 {
                 for d in (c + 1)..=27 {
                     for e in (d + 1)..=28 {
                         for f in (e + 1)..=29 {
                             for g in (f + 1)..=30 {
                                 for h in (g + 1)..=31 {
-                                    if !rows8_nonsingular(&rows, [a,b,c,d,e,f,g,h]) {
+                                    if !rows8_nonsingular(&rows, [a, b, c, d, e, f, g, h]) {
                                         ok.store(false, Ordering::Relaxed);
                                         return;
                                     }
@@ -392,7 +403,10 @@ impl GateFamily {
     /// Deterministic checked setup for Theorem 3.19 with i0=3 (Brief 10).
     pub fn from_seed_checked_i0_3(n: usize, k: usize, seed: u64) -> CheckedSetup {
         assert!(n >= 3, "checked i0=3 setup requires n>=3");
-        assert!(k == 2, "Brief-10 exhaustive C3 checker is specialized to k=2");
+        assert!(
+            k == 2,
+            "Brief-10 exhaustive C3 checker is specialized to k=2"
+        );
         let t = std::time::Instant::now();
         let mut counter = 0u64;
         loop {
@@ -531,7 +545,6 @@ pub fn evaluate(coeffs: &[F128], z: &[F128]) -> F128 {
     layer[0]
 }
 
-
 pub const V09_GATE_SEED_DOMAIN: &[u8] = b"SPARK-SEED-v0.9";
 pub const V09_PUBLIC_GATE_SEED: u64 = 0x51aa735e64a0a5cd;
 pub const V09_N20_K2_I0_3_SETUP_COUNTER: u64 = 0;
@@ -634,13 +647,13 @@ mod tests {
     fn brief10_forced_level3_coincidence_is_rejected() {
         let k = 2usize;
         let l0 = (0..4)
-            .map(|i| (F128((10 + 2*i) as u128), F128((11 + 2*i) as u128)))
+            .map(|i| (F128((10 + 2 * i) as u128), F128((11 + 2 * i) as u128)))
             .collect::<Vec<_>>();
         let l1 = (0..8)
-            .map(|i| (F128((100 + 2*i) as u128), F128((101 + 2*i) as u128)))
+            .map(|i| (F128((100 + 2 * i) as u128), F128((101 + 2 * i) as u128)))
             .collect::<Vec<_>>();
         let mut l2 = (0..16)
-            .map(|i| (F128((1000 + 2*i) as u128), F128((1001 + 2*i) as u128)))
+            .map(|i| (F128((1000 + 2 * i) as u128), F128((1001 + 2 * i) as u128)))
             .collect::<Vec<_>>();
 
         l2[0].1 = l2[0].0;

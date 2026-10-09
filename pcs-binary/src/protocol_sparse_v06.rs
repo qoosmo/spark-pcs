@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
+
 use crate::{
     encode::{derive_gate_level_key, derive_raw_gate_from_level_key, encode, GateFamily},
     extfield::F256,
@@ -369,6 +371,7 @@ fn pair_at<T: Copy>(indices: &[usize], pairs: &[[T; 2]], p: usize) -> Option<[T;
     indices.binary_search(&p).ok().map(|i| pairs[i])
 }
 #[inline(always)]
+#[allow(dead_code)]
 fn gate_at(keys: &[(usize, usize)], gates: &[Gate], level: usize, node: usize) -> Option<Gate> {
     keys.binary_search(&(level, node)).ok().map(|i| gates[i])
 }
@@ -864,7 +867,7 @@ mod sparse_auth_tests {
         assert!(run.verified);
 
         let mut bad = run.proof.clone();
-        bad.eval = bad.eval + F256::ONE;
+        bad.eval += F256::ONE;
         let (ok, _) = verify_sparse_v06(
             seed,
             checked.counter,
@@ -880,7 +883,6 @@ mod sparse_auth_tests {
         assert!(!ok);
     }
 }
-
 
 // -----------------------------------------------------------------------------
 // SPARK v0.9 transcript wrapper.
@@ -927,7 +929,12 @@ pub struct SparseTimingsV09 {
 
 impl SparseTimingsV09 {
     pub fn prover_total(&self) -> Duration {
-        self.encode + self.commit0 + self.fold_total + self.commit_folds + self.query_open + self.grind
+        self.encode
+            + self.commit0
+            + self.fold_total
+            + self.commit_folds
+            + self.query_open
+            + self.grind
     }
 
     pub fn verify_total(&self) -> Duration {
@@ -951,12 +958,8 @@ fn derive_zs_sparse_v09(
     let mut ri = 0usize;
 
     for r in 0..params.n {
-        let z = crate::transcript_v09::challenge_field_v09(
-            &st,
-            b"fold",
-            r as u64,
-            params.hash_kind,
-        );
+        let z =
+            crate::transcript_v09::challenge_field_v09(&st, b"fold", r as u64, params.hash_kind);
         zs.push(z);
 
         let b = r + 1;
@@ -1039,12 +1042,7 @@ pub fn verify_sparse_v09(
         (0, None) => None,
         (0, Some(_)) => return Err(VerifyErrorV09::InvalidProof),
         (_, Some(x))
-            if crate::transcript_v09::valid_grind_nonce_v09(
-                &gs,
-                x,
-                params.g,
-                params.hash_kind,
-            ) =>
+            if crate::transcript_v09::valid_grind_nonce_v09(&gs, x, params.g, params.hash_kind) =>
         {
             Some(x)
         }
@@ -1125,17 +1123,8 @@ pub fn verify_sparse_v09(
         profile.merkle += merkle_start.elapsed();
 
         let fold_start = Instant::now();
-        known = known_from_ext(
-            params.n,
-            b,
-            d,
-            &q0s,
-            &ix,
-            &pairs,
-            &keys,
-            &fold_lambdas,
-        )
-        .ok_or(VerifyErrorV09::InvalidProof)?;
+        known = known_from_ext(params.n, b, d, &q0s, &ix, &pairs, &keys, &fold_lambdas)
+            .ok_or(VerifyErrorV09::InvalidProof)?;
         profile.folding += fold_start.elapsed();
 
         a = b + d;
@@ -1145,8 +1134,7 @@ pub fn verify_sparse_v09(
         return Err(VerifyErrorV09::InvalidProof);
     }
 
-    let accounted =
-        profile.transcript + profile.gate_derivation + profile.merkle + profile.folding;
+    let accounted = profile.transcript + profile.gate_derivation + profile.merkle + profile.folding;
     profile.other = total_start
         .elapsed()
         .checked_sub(accounted)
@@ -1179,8 +1167,7 @@ pub fn prove_and_verify_sparse_v09(
     let header = params.header().map_err(VerifyErrorV09::InvalidParams)?;
     let boundaries = committed_boundaries(params.n, params.commit_every);
     let mut committed_words = Vec::<Vec<F256>>::with_capacity(boundaries.len());
-    let mut committed_trees =
-        Vec::<MerkleTreeV05<F256>>::with_capacity(boundaries.len());
+    let mut committed_trees = Vec::<MerkleTreeV05<F256>>::with_capacity(boundaries.len());
     let mut roots = Vec::with_capacity(boundaries.len());
     let mut state = crate::transcript_v09::initial_state_v09(&header, &commitment);
 
@@ -1190,12 +1177,8 @@ pub fn prove_and_verify_sparse_v09(
     let mut final_word = Vec::new();
 
     for (r, level) in family.levels.iter().rev().enumerate() {
-        let z = crate::transcript_v09::challenge_field_v09(
-            &state,
-            b"fold",
-            r as u64,
-            params.hash_kind,
-        );
+        let z =
+            crate::transcript_v09::challenge_field_v09(&state, b"fold", r as u64, params.hash_kind);
 
         let tf = Instant::now();
         let next = if r == 0 {
@@ -1284,9 +1267,8 @@ pub fn prove_and_verify_sparse_v09(
     };
 
     let verify = verify_sparse_v09(params, &commitment, &proof)?;
-    let challenges =
-        derive_zs_sparse_v09(params, &commitment, &proof.body.folded_roots)
-            .ok_or(VerifyErrorV09::InvalidProof)?;
+    let challenges = derive_zs_sparse_v09(params, &commitment, &proof.body.folded_roots)
+        .ok_or(VerifyErrorV09::InvalidProof)?;
 
     Ok(SparseTimingsV09 {
         encode: encode_t,
@@ -1303,7 +1285,6 @@ pub fn prove_and_verify_sparse_v09(
     })
 }
 
-
 #[cfg(test)]
 mod v09_transcript_tests {
     use super::*;
@@ -1313,15 +1294,7 @@ mod v09_transcript_tests {
     };
 
     fn required_s(n: usize, k: usize, i0: usize, g: u32, target: u32) -> usize {
-        soundness_bits_from(
-            n,
-            k,
-            128.0,
-            256.0,
-            g as f64,
-            (target - 128) as f64,
-            i0,
-        ).s
+        soundness_bits_from(n, k, 128.0, 256.0, g as f64, (target - 128) as f64, i0).s
     }
 
     fn params_for(

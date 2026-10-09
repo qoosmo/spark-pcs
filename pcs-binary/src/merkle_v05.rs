@@ -119,13 +119,13 @@ fn verify_frontier_sorted(
     indices: &[usize],
     leaf_hashes: Vec<Hash>,
     auth: &[Hash],
-    kind: HashKind,
+    #[allow(dead_code)] kind: HashKind,
 ) -> bool {
     if indices.len() != leaf_hashes.len() {
         return false;
     }
     let mut cur = indices.iter().copied().zip(leaf_hashes).collect::<Vec<_>>();
-    let mut next = Vec::<(usize, Hash)>::with_capacity((cur.len() + 1) / 2);
+    let mut next = Vec::<(usize, Hash)>::with_capacity(cur.len().div_ceil(2));
     let mut ap = 0usize;
     let depth = leaf_count.trailing_zeros() as usize;
 
@@ -189,6 +189,7 @@ impl<T: MerkleElem> CompactOpening<T> {
 #[derive(Clone, Debug)]
 pub struct MerkleTreeV05<T: MerkleElem> {
     levels: Vec<Vec<Hash>>,
+    #[allow(dead_code)]
     kind: HashKind,
     _m: std::marker::PhantomData<T>,
 }

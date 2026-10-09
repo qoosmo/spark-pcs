@@ -53,7 +53,11 @@ impl MerkleTree {
 pub fn verify(root: &Hash, mut idx: usize, leaf: &[u8], path: &[Hash]) -> bool {
     let mut h = h_leaf(leaf);
     for sib in path {
-        h = if idx & 1 == 0 { h_node(&h, sib) } else { h_node(sib, &h) };
+        h = if idx & 1 == 0 {
+            h_node(&h, sib)
+        } else {
+            h_node(sib, &h)
+        };
         idx >>= 1;
     }
     idx == 0 && &h == root

@@ -2,12 +2,12 @@
 
 #[derive(Clone, Debug)]
 pub struct Params {
-    pub n: usize,          // number of variables
-    pub k: usize,          // redundancy bits: table size 2^(n+k)
-    pub s: usize,          // number of queries
-    pub seed: [u8; 32],    // public gate seed
-    pub delta_star: f64,   // certified relative distance
-    pub delta: f64,        // proximity threshold used in the soundness theorem
+    pub n: usize,                // number of variables
+    pub k: usize,                // redundancy bits: table size 2^(n+k)
+    pub s: usize,                // number of queries
+    pub seed: [u8; 32],          // public gate seed
+    pub delta_star: f64,         // certified relative distance
+    pub delta: f64,              // proximity threshold used in the soundness theorem
     pub log2_bad_challenge: f64, // log2 of n (N_1 + 1/eps) / |K|
 }
 
@@ -39,25 +39,47 @@ impl Params {
     pub fn new(n: usize, k: usize, lambda: f64, seed: [u8; 32]) -> Result<Params, String> {
         let a = distance_bound(64.0, n, k, lambda);
         let b = distance_bound_saturation(64.0, n, k, lambda);
-        let delta_star = if a.is_nan() { b } else if b.is_nan() { a } else { a.max(b) };
-        if !(delta_star > 0.0) {
-            return Err(format!("k = {k} gives no certified distance at n = {n}; increase k"));
+        let delta_star = if a.is_nan() {
+            b
+        } else if b.is_nan() {
+            a
+        } else {
+            a.max(b)
+        };
+        if delta_star.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+            return Err(format!(
+                "k = {k} gives no certified distance at n = {n}; increase k"
+            ));
         }
         let delta_max = (1.0 - (1.0 - delta_star).powf(1.0 / 3.0)).min(delta_star / 2.0);
         let delta = 0.95 * delta_max;
         let eps = 2f64.powi(-30);
         let gamma = ((1.0 - delta).powi(3) - (1.0 - delta_star)) / delta_star;
         let m = (delta_star / (delta_star - 2.0 * delta)).floor() + 1.0;
-        let n1 = (12.0 / (delta_star * gamma)).max(2.0 * m / gamma + 2.0).ceil();
+        let n1 = (12.0 / (delta_star * gamma))
+            .max(2.0 * m / gamma + 2.0)
+            .ceil();
         let log2_bad = (n as f64 * (n1 + 1.0 / eps)).log2() - 3.0 * 64.0;
         let per_query = 1.0 - delta + n as f64 * eps;
         let s = (lambda / -per_query.log2()).ceil() as usize;
-        Ok(Params { n, k, s, seed, delta_star, delta, log2_bad_challenge: log2_bad })
+        Ok(Params {
+            n,
+            k,
+            s,
+            seed,
+            delta_star,
+            delta,
+            log2_bad_challenge: log2_bad,
+        })
     }
 }
 
 fn h2(x: f64) -> f64 {
-    if x <= 0.0 || x >= 1.0 { 0.0 } else { -x * x.log2() - (1.0 - x) * (1.0 - x).log2() }
+    if x <= 0.0 || x >= 1.0 {
+        0.0
+    } else {
+        -x * x.log2() - (1.0 - x) * (1.0 - x).log2()
+    }
 }
 
 /// Theorem 3.14 (rank saturation): Z_0 = 1, Z_i = 2 Z_{i-1} + g_i with g_i minimal such that
@@ -70,17 +92,27 @@ pub fn distance_bound_saturation(log2q: f64, n: usize, k: usize, lambda: f64) ->
         let small = (l / 2.0) * std::f64::consts::LOG2_E * 2f64.powf(-log2q);
         let cost = |g: f64| -> f64 {
             let z = 2.0 * z_prev + g;
-            if z > l { return f64::INFINITY; }
+            if z > l {
+                return f64::INFINITY;
+            }
             l * h2(z / l) + small - (g + 1.0) * log2q + 1e-9
         };
         let mut hi = (l - 2.0 * z_prev).max(0.0);
-        if cost(hi) > target { return f64::NAN; }
+        if cost(hi) > target {
+            return f64::NAN;
+        }
         let mut lo = 0.0f64;
         while hi - lo > 0.5 {
             let mid = ((lo + hi) / 2.0).floor();
-            if cost(mid) <= target { hi = mid; } else { lo = mid + 1.0; }
+            if cost(mid) <= target {
+                hi = mid;
+            } else {
+                lo = mid + 1.0;
+            }
         }
-        if cost(lo) <= target { hi = lo; }
+        if cost(lo) <= target {
+            hi = lo;
+        }
         z_prev = 2.0 * z_prev + hi;
     }
     1.0 - (z_prev - 1.0) / 2f64.powi((k + n) as i32)
