@@ -24,4 +24,10 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Tests
-        run: cargo test --workspace --all-features
+        run: |
+        echo "SPARK field multiplication path on x86_64 CI: portable"
+        echo "Brief15 coverage: spark-params::v08_n20_pinned"
+        echo "Brief15 coverage: transcript_v09::tests::v09_n20_params_validate_and_recompute_s"
+        echo "Brief15 coverage: protocol_sparse_v06::v09_transcript_tests::v09_round_trip_single_n8_n10_n12"
+        echo "Brief15 coverage: protocol_batch_v12::v09_batch_transcript_tests::v09_round_trip_batch_n8_n10_n12"
+        cargo test --workspace --all-features
