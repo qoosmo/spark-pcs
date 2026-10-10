@@ -998,10 +998,18 @@ pub fn verify_sparse_v09(
     commitment: &Hash,
     proof: &SparseProofV09,
 ) -> Result<VerifyProfileV07, VerifyErrorV09> {
+    let validated = params.validated().map_err(VerifyErrorV09::InvalidParams)?;
+    verify_sparse_v09_validated(&validated, commitment, proof)
+}
+
+pub fn verify_sparse_v09_validated(
+    validated: &crate::transcript_v09::ValidatedParamsV09<'_>,
+    commitment: &Hash,
+    proof: &SparseProofV09,
+) -> Result<VerifyProfileV07, VerifyErrorV09> {
+    let params = validated.params();
     let total_start = Instant::now();
     let mut profile = VerifyProfileV07::default();
-
-    params.validate().map_err(VerifyErrorV09::InvalidParams)?;
 
     if proof.proof_format_version != crate::transcript_v09::PROOF_FORMAT_VERSION_V09 {
         return Err(VerifyErrorV09::VersionMismatch {
@@ -1149,7 +1157,7 @@ pub fn prove_and_verify_sparse_v09(
     family: &GateFamily,
     params: &crate::transcript_v09::ParamsV09,
 ) -> Result<SparseTimingsV09, VerifyErrorV09> {
-    params.validate().map_err(VerifyErrorV09::InvalidParams)?;
+    let validated = params.validated().map_err(VerifyErrorV09::InvalidParams)?;
     if params.t != 1 || family.n != params.n || family.k != params.k {
         return Err(VerifyErrorV09::InvalidParams(
             "single-proof params/family mismatch".into(),
@@ -1267,7 +1275,7 @@ pub fn prove_and_verify_sparse_v09(
         body,
     };
 
-    let verify = verify_sparse_v09(params, &commitment, &proof)?;
+    let verify = verify_sparse_v09_validated(&validated, &commitment, &proof)?;
     let challenges = derive_zs_sparse_v09(params, &commitment, &proof.body.folded_roots)
         .ok_or(VerifyErrorV09::InvalidProof)?;
 

@@ -48,7 +48,23 @@ pub struct ParamsV09 {
     pub target_bits: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct ValidatedParamsV09<'a> {
+    params: &'a ParamsV09,
+}
+
+impl<'a> ValidatedParamsV09<'a> {
+    pub fn params(&self) -> &'a ParamsV09 {
+        self.params
+    }
+}
+
 impl ParamsV09 {
+    pub fn validated(&self) -> Result<ValidatedParamsV09<'_>, String> {
+        self.validate()?;
+        Ok(ValidatedParamsV09 { params: self })
+    }
+
     pub fn schedule(&self) -> Vec<u32> {
         committed_schedule(self.n, self.commit_every)
     }
