@@ -3,6 +3,10 @@ name = "spark-binary"
 version = "0.8.0"
 edition = "2021"
 
+[features]
+default = []
+tplus1 = []
+
 [dependencies]
 blake3 = "1"
 rand = "0.8"

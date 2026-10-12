@@ -645,6 +645,9 @@ fn fold_first_level(word: &[F128], gates: &[Gate], z: F256) -> Vec<F256> {
     word.par_chunks_exact(2)
         .zip(gates.par_iter().copied())
         .map(|(w, g)| {
+            #[cfg(feature = "tplus1")]
+            let l = z + F256::from_base(g.t0);
+            #[cfg(not(feature = "tplus1"))]
             let l = (z + F256::from_base(g.t0)).mul_base(g.inv_dt);
             fold_first_lambda(l, w[0], w[1])
         })
@@ -654,6 +657,9 @@ fn fold_ext_level(word: &[F256], gates: &[Gate], z: F256) -> Vec<F256> {
     word.par_chunks_exact(2)
         .zip(gates.par_iter().copied())
         .map(|(w, g)| {
+            #[cfg(feature = "tplus1")]
+            let l = z + F256::from_base(g.t0);
+            #[cfg(not(feature = "tplus1"))]
             let l = (z + F256::from_base(g.t0)).mul_base(g.inv_dt);
             fold_ext_lambda(l, w[0], w[1])
         })
@@ -728,6 +734,9 @@ fn derive_sparse_gates(
     let prf = t0.elapsed();
     let den = raw.iter().map(|(a, b)| *a + *b).collect::<Vec<_>>();
     let ti = Instant::now();
+    #[cfg(feature = "tplus1")]
+    let inv = vec![F128::ONE; den.len()];
+    #[cfg(not(feature = "tplus1"))]
     let inv = batch_inverse(&den);
     let inv_t = ti.elapsed();
     let tb = Instant::now();
@@ -743,7 +752,16 @@ fn derive_lambdas(n: usize, keys: &[(usize, usize)], gates: &[Gate], zs: &[F256]
         .zip(gates.iter().copied())
         .map(|(&(level, _), g)| {
             let round = n - 1 - level;
-            (zs[round] + F256::from_base(g.t0)).mul_base(g.inv_dt)
+            {
+                #[cfg(feature = "tplus1")]
+                {
+                    zs[round] + F256::from_base(g.t0)
+                }
+                #[cfg(not(feature = "tplus1"))]
+                {
+                    (zs[round] + F256::from_base(g.t0)).mul_base(g.inv_dt)
+                }
+            }
         })
         .collect()
 }

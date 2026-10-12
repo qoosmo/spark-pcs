@@ -259,11 +259,17 @@ fn derive_queries(
 
 #[inline]
 fn fold_first(g: Gate, w0: F128, w1: F128, z: F256) -> F256 {
+    #[cfg(feature = "tplus1")]
+    let lambda = z + F256::from_base(g.t0);
+    #[cfg(not(feature = "tplus1"))]
     let lambda = (z + F256::from_base(g.t0)).mul_base(g.inv_dt);
     F256::from_base(w0) + lambda.mul_base(w1 + w0)
 }
 #[inline]
 fn fold_ext(g: Gate, w0: F256, w1: F256, z: F256) -> F256 {
+    #[cfg(feature = "tplus1")]
+    let lambda = z + F256::from_base(g.t0);
+    #[cfg(not(feature = "tplus1"))]
     let lambda = (z + F256::from_base(g.t0)).mul_base(g.inv_dt);
     w0 + lambda * (w1 + w0)
 }
@@ -354,6 +360,9 @@ fn derive_sparse_gates_profiled(
 
     let den = raw.iter().map(|(a, b)| *a + *b).collect::<Vec<_>>();
     let t = Instant::now();
+    #[cfg(feature = "tplus1")]
+    let inv = vec![F128::ONE; den.len()];
+    #[cfg(not(feature = "tplus1"))]
     let inv = batch_inverse(&den);
     let inv_t = t.elapsed();
 
@@ -387,7 +396,16 @@ fn derive_fold_lambdas(
         .zip(gates.iter().copied())
         .map(|(&(level, _), g)| {
             let round = n - 1 - level;
-            (zs[round] + F256::from_base(g.t0)).mul_base(g.inv_dt)
+            {
+                #[cfg(feature = "tplus1")]
+                {
+                    zs[round] + F256::from_base(g.t0)
+                }
+                #[cfg(not(feature = "tplus1"))]
+                {
+                    (zs[round] + F256::from_base(g.t0)).mul_base(g.inv_dt)
+                }
+            }
         })
         .collect()
 }
