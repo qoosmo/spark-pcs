@@ -65,6 +65,8 @@ fn digest(kind: HashKind, parts: &[&[u8]]) -> Hash {
 }
 #[inline]
 fn h_leaf<T: MerkleElem>(kind: HashKind, a: T, b: T) -> Hash {
+    #[cfg(feature = "brief18t_instrument")]
+    crate::instrument::inc_hash();
     let mut ab = [0u8; 32];
     let mut bb = [0u8; 32];
     a.encode(&mut ab);
@@ -93,6 +95,8 @@ fn h_leaf<T: MerkleElem>(kind: HashKind, a: T, b: T) -> Hash {
 }
 #[inline]
 fn h_node(kind: HashKind, l: &Hash, r: &Hash) -> Hash {
+    #[cfg(feature = "brief18t_instrument")]
+    crate::instrument::inc_hash();
     match kind {
         HashKind::Blake3 => {
             // Same transcript bytes, one BLAKE3 call instead of 3 updates.

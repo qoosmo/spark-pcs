@@ -1,0 +1,50 @@
+\subsection{Specialized gates for the binary-field implementation}
+\label{sec:specialized-gates}
+
+For the production binary-field implementation we specialize each parent gate
+to \(t^0=t\), \(t^1=t+1\). In characteristic two these points are distinct
+deterministically. For inputs \(u,v\),
+\[
+a=u+t\,v,\qquad b=a+v=u+(t+1)v.
+\]
+The fold becomes
+\[
+w^0+(z+t)(w^1+w^0),
+\]
+because \(t^1-t^0=1\).
+
+The Theorem~3.19 distance argument is unchanged. Double-parent constraints
+force \(v=0\) and then \(u=0\). A singleton equation \(u+(t+b)v=0\) has
+exactly one solution \(t\) when \(v\neq0\), hence probability \(1/q\), and
+parents remain independent.
+
+At \(n=20,k=2,i_0=3,s=407\), median prover time falls by \(17.4\%\) with one
+Rayon thread and \(14.5\%\) with eight. Encoding multiplications fall exactly
+from \(83{,}886{,}080\) to \(41{,}943{,}040\); folding removes
+\(8{,}388{,}600\) base-field multiplications; commitment remains exactly
+\(4{,}793{,}481\) Merkle hashes.
+
+The pre-deduplication opening structure is unchanged. The deterministic v0.10
+proof is \(592{,}577\) bytes, \(0.27\%\) larger than v0.9 because domain
+separation changes query positions and therefore Merkle-path deduplication.
+
+\paragraph{Linear proximity gap.}
+For the optional GKL branch, Gao--Kan--Li applies for
+\[
+\delta\le1-(1-\Delta_C+\eta)^{1/3}
+\]
+and bounds the exceptional combining points by
+\[
+L+\frac{6}{\eta}+
+\frac{2}{\eta((1-\Delta_C+\eta)^{1/3}-\sqrt{1-\Delta_C+\eta})}.
+\]
+This is the 1.5-Johnson result, not a full Johnson-radius claim.
+
+\paragraph{The \(k=3\) record.}
+The currently landable \(k=3\) point is \(i_0=2,s=277\). The \(s=261\) value
+is conditional on a checked \(C_3=[64,8]\).
+
+\paragraph{Transparent checked setup.}
+The fixed domain-separated seed and first accepted public counter are immutable
+protocol constants after the finite checked-prefix test. The checked-setup
+failure budget is a one-time transparent-setup event, not a per-proof charge.

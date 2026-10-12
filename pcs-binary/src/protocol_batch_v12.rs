@@ -1,10 +1,12 @@
 #![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+#[cfg(not(feature = "tplus1"))]
+use crate::field::batch_inverse;
 use crate::{
     encode::{derive_gate_level_key, derive_raw_gate_from_level_key, encode, GateFamily},
     extfield::F256,
-    field::{batch_inverse, F128},
+    field::F128,
     gates::Gate,
     merkle_v05::{Hash, HashKind},
 };

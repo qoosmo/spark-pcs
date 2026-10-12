@@ -1,10 +1,9 @@
 #![allow(clippy::needless_range_loop)]
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::{
-    field::{batch_inverse, F128},
-    gates::Gate,
-};
+#[cfg(not(feature = "tplus1"))]
+use crate::field::batch_inverse;
+use crate::{field::F128, gates::Gate};
 use rand::RngCore;
 use rayon::prelude::*;
 
