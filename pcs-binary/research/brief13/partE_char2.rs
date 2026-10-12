@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Brief 13b Part E: characteristic-2 sanity check for the 16 hard C2,k=1 minors.
 // Standalone Rust, no external crates.
 //

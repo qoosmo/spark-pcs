@@ -1,3 +1,6 @@
+#![allow(clippy::needless_range_loop)]
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use std::time::{Duration, Instant};
 
 use crate::{

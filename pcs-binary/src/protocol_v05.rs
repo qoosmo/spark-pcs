@@ -1,3 +1,6 @@
+#![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use crate::{
     encode::{derive_raw_gate_with_counter, encode, GateFamily},
     extfield::F256,
@@ -185,6 +188,7 @@ fn uniq(q: &[usize], r: usize) -> Vec<usize> {
     v.dedup();
     v
 }
+#[allow(dead_code)]
 fn val128(ix: &[usize], op: &MultiOpening<F128>, q: usize) -> Option<[F128; 2]> {
     ix.binary_search(&q).ok().map(|p| op.values[p])
 }

@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt,clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Tests
+        run: |
+        echo "SPARK field multiplication path on x86_64 CI: portable"
+        echo "Brief15 coverage: spark-params::v08_n20_pinned"
+        echo "Brief15 coverage: transcript_v09::tests::v09_n20_params_validate_and_recompute_s"
+        echo "Brief15 coverage: protocol_sparse_v06::v09_transcript_tests::v09_round_trip_single_n8_n10_n12"
+        echo "Brief15 coverage: protocol_batch_v12::v09_batch_transcript_tests::v09_round_trip_batch_n8_n10_n12"
+        cargo test --workspace --all-features

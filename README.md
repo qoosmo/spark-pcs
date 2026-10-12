@@ -50,6 +50,34 @@ cargo run --release -p gatecode -- ident                  # algebraic identity c
 
 Experiment modes: `ident`, `bound`, `bound2`, `sweep`, `isd`, `sanity2`, `p1`, `p2`, `mdsx`, `coll`, `checked`, `vand`.
 
+
+## v0.9 release
+
+SPARK v0.9 fixes the canonical Fiat–Shamir transcript and verifier parameter binding while leaving the encoder, folding rule, gate construction, Merkle construction, and query algorithm unchanged.
+
+Release parameters:
+
+- `F = GF(2^128)` with modulus `x^128 + x^7 + x^2 + x + 1`
+- `K = F[y]/(y^2 + y + x^121)`
+- public gate seed `5884642712365344205`
+- setup counter `0` for `n=20, k=2, i0=3`
+- `target_bits = 192`
+- `s = 407`
+
+See [`fiat-shamir-v09.md`](fiat-shamir-v09.md).
+
+The verifier recomputes the query count from `(n,k,i0,g)` and the security target, and rejects any parameter set with fewer queries.
+
+### v0.9 smoke
+
+`RUNS=1 cargo run --release -p spark-binary --bin bench -- --v09`
+
+Pinned result:
+
+- proof: `590977` bytes
+- header: `148` bytes
+- wrapper: `153` bytes
+
 ## Status
 
 - **Prototype.** Single-threaded and unoptimised. Parameters currently use the rank-saturation bound.

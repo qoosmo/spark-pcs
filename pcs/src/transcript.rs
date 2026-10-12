@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Fiat-Shamir transcript (SHA-256 sponge-style chaining).
 
 use crate::field::{Fe3, Fp, P};
@@ -10,7 +11,10 @@ pub struct Transcript {
 
 impl Transcript {
     pub fn new(label: &[u8]) -> Self {
-        let mut t = Transcript { state: [0u8; 32], counter: 0 };
+        let mut t = Transcript {
+            state: [0u8; 32],
+            counter: 0,
+        };
         t.absorb(label);
         t
     }

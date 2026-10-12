@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::field::F128;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -216,7 +217,7 @@ mod tests {
 
     #[test]
     fn opening_roundtrip() {
-        let word = (0..32).map(|i| F128(i)).collect::<Vec<_>>();
+        let word = (0..32).map(F128).collect::<Vec<_>>();
         let tree = MerkleTree::from_pairs(&word);
         for i in 0..16 {
             let op = tree.open_pair(&word, i);
@@ -226,7 +227,7 @@ mod tests {
 
     #[test]
     fn multiproof_roundtrip() {
-        let word = (0..128).map(|i| F128(i)).collect::<Vec<_>>();
+        let word = (0..128).map(F128).collect::<Vec<_>>();
         let tree = MerkleTree::from_pairs(&word);
         let indices = vec![0usize, 1, 5, 8, 9, 31, 63];
         let op = tree.open_pairs(&word, &indices);
@@ -240,7 +241,7 @@ mod tests {
 
     #[test]
     fn multiproof_tamper_fails() {
-        let word = (0..128).map(|i| F128(i)).collect::<Vec<_>>();
+        let word = (0..128).map(F128).collect::<Vec<_>>();
         let tree = MerkleTree::from_pairs(&word);
         let indices = vec![2usize, 3, 17, 42];
         let mut op = tree.open_pairs(&word, &indices);

@@ -1,3 +1,6 @@
+#![allow(clippy::suspicious_arithmetic_impl, clippy::suspicious_op_assign_impl)]
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use core::fmt;
 use core::ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign};
 use rand::RngCore;
@@ -14,6 +17,7 @@ pub struct F128(pub u128);
 impl F128 {
     pub const ZERO: Self = Self(0);
     pub const ONE: Self = Self(1);
+    #[allow(dead_code)]
     const REDUCTION: u128 = 0x87; // x^7 + x^2 + x + 1
 
     #[inline]
@@ -74,6 +78,7 @@ impl F128 {
     }
 
     #[inline]
+    #[allow(dead_code)]
     fn mul_portable(self, rhs: Self) -> Self {
         let mut a = self.0;
         let mut b = rhs.0;
@@ -114,9 +119,9 @@ impl F128 {
         let b1 = (rhs.0 >> 64) as u64;
 
         // Karatsuba: three polynomial 64x64 -> 128 multiplies.
-        let p00 = unsafe { vmull_p64(a0, b0) };
-        let p11 = unsafe { vmull_p64(a1, b1) };
-        let pm = unsafe { vmull_p64(a0 ^ a1, b0 ^ b1) };
+        let p00 = vmull_p64(a0, b0);
+        let p11 = vmull_p64(a1, b1);
+        let pm = vmull_p64(a0 ^ a1, b0 ^ b1);
         let cross = pm ^ p00 ^ p11;
 
         let lo = p00 ^ (cross << 64);
@@ -128,7 +133,7 @@ impl F128 {
     fn mul_impl(self, rhs: Self) -> Self {
         #[cfg(all(target_arch = "aarch64", target_feature = "aes"))]
         {
-            return unsafe { self.mul_pmull(rhs) };
+            unsafe { self.mul_pmull(rhs) }
         }
         #[cfg(not(all(target_arch = "aarch64", target_feature = "aes")))]
         {
