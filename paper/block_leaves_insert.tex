@@ -39,8 +39,8 @@ soundness bound, the query count $s$ and the challenge field are unchanged.
 
 \paragraph{Measurements.} Table~\ref{tab:block-leaves} reports the commitment phase alone. It
 builds exactly the trees of the prover on the same tables, with the two layouts interleaved in one
-process. Table~\ref{tab:block-leaves-e2e} reports full proofs: both layouts are built from the same
-commit, and their runs are interleaved.
+process. Table~\ref{tab:block-leaves-e2e} reports full proofs for all four combinations of gate family and
+leaf layout.
 \begin{table}[h]
 \centering
 \begin{tabular}{rrrrrr}
@@ -64,27 +64,35 @@ Xeon at $2.8$\,GHz ($-30\%$, $-56\%$, $-65\%$ at $n=20$).
 
 \begin{table}[h]
 \centering
-\begin{tabular}{rlrrrrr}
+\begin{tabular}{lrrrrrr}
 \toprule
-$m$ & threads & prover, pair & prover, group & change & verifier, group & proof, group\\
+& \multicolumn{3}{c}{$m=3$} & \multicolumn{3}{c}{$m=4$}\\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+gates, leaves & prover & verifier & proof & prover & verifier & proof\\
 \midrule
-2 & 1 & 1580 ms & 1210 ms & $-23\%$ & 9.2 ms & 669{,}430 B\\
-3 & 1 & 1370 ms & 875 ms & $-36\%$ & 8.4 ms & 585{,}706 B\\
-4 & 1 & 1292 ms & 732 ms & $-43\%$ & 9.9 ms & 658{,}658 B\\
-3 & 8 & 401 ms & 270 ms & $-33\%$ & 15.9 ms & 585{,}706 B\\
-4 & 8 & 398 ms & 178 ms & $-55\%$ & 18.8 ms & 658{,}658 B\\
+random, pair & 1669 ms & 10.6 ms & 588{,}170 B & 1567 ms & 13.4 ms & 655{,}682 B\\
+$(t,t+1)$, pair & 1367 ms & 10.2 ms & 594{,}218 B & 1305 ms & 12.8 ms & 659{,}618 B\\
+random, group & 1137 ms & 9.0 ms & 593{,}418 B & 1001 ms & 10.6 ms & 661{,}314 B\\
+$(t,t+1)$, group & \textbf{882 ms} & 8.4 ms & 585{,}706 B & \textbf{738 ms} & 9.8 ms & 658{,}658 B\\
 \bottomrule
 \end{tabular}
-\caption{Full proofs at $n=20$, $k=2$, $s=407$, $g=16$, gates $(t,t+1)$, Apple M1, median of 20
-interleaved runs. With pair leaves the proofs are $654{,}326$, $594{,}218$ and $659{,}618$ bytes for
-$m=2,3,4$, and the single-thread verifier takes $9.8$, $10.2$ and $12.8$\,ms.}
+\caption{Full proofs at $n=20$, $k=2$, $s=407$, $g=16$, one thread, Apple M1. All four
+configurations are built from the same commit and measured in one session, cycling through them in every round (median of 20
+runs each). The first row has the cost of v0.9.1 (random gates, pair leaves).}
 \label{tab:block-leaves-e2e}
 \end{table}
 
-At the production schedule $m=3$, group leaves cut the single-thread prover from $1370$ to
-$875$\,ms ($-36\%$) and the verifier from $10.2$ to $8.4$\,ms, and the proof is $1.4\%$ smaller.
-With group leaves the trade-off between schedules changes. $m=4$ gives the fastest prover
-($732$\,ms on one thread, $178$\,ms on eight) for a proof that is $12\%$ larger than with $m=3$.
+The two optimizations are independent and their gains multiply. Specialized gates
+(\S\ref{sec:specialized-gates}) shorten encoding and folding. Group leaves shorten the
+commitment. Together they make the single-thread prover $1.89\times$ faster at $m=3$
+($1669\to882$\,ms) and $2.12\times$ faster at $m=4$ ($1567\to738$\,ms). The verifier gets faster too,
+and the proof size stays within $\pm1\%$ of the baseline for each schedule. With eight threads the
+medians are $510\to323$\,ms at $m=3$ and $462\to176$\,ms at $m=4$; the run-to-run spread is larger
+there.
+
+The two schedules serve different needs. The \emph{compact} profile $m=3$ gives the smallest proof
+($586$\,KB). The \emph{fast} profile $m=4$ gives the fastest prover ($738$\,ms on one thread,
+$176$\,ms on eight) for a proof $12\%$ larger. Both have the same soundness bound and query count.
 
 \paragraph{Further saving.} An internal node hashes a $22$-byte tag and $64$ bytes, i.e.\ two
 compressions. Moving the tag into the key of a keyed hash leaves a $64$-byte input, i.e.\ one
