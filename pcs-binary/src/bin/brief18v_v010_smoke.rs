@@ -58,7 +58,8 @@ fn main() {
     println!("V010_HEADER_BYTES={}", h10.len());
     println!("V010_SETUP_COUNTER={}", p10.setup_counter);
 
-    assert_eq!(bytes10, 594218);
+    let expect10 = if cfg!(feature = "rc1-layout") { 594218 } else { 591562 };
+    assert_eq!(bytes10, expect10);
     assert_eq!(p10.setup_counter, 0);
     println!("V010_PINNED_SMOKE=PASS");
 

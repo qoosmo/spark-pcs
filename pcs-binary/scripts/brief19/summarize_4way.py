@@ -1,8 +1,8 @@
 import csv, sys, statistics as st
 rows = list(csv.DictReader(open(sys.argv[1])))
-order = ["random-pair", "tplus1-pair", "random-block", "tplus1-block"]
-label = {"random-pair": "v0.9.1-equiv (random, pair)", "tplus1-pair": "(t,t+1), pair",
-         "random-block": "random, block", "tplus1-block": "(t,t+1), block"}
+order = ["random-rc1", "tplus1-rc1", "random-v10", "tplus1-v10"]
+label = {"random-rc1": "v0.9.1-equiv (random gates, pair leaves)", "tplus1-rc1": "v0.10-rc1 ((t,t+1), pair leaves)",
+         "random-v10": "random gates, v0.10 leaves", "tplus1-v10": "v0.10 ((t,t+1), keyed group leaves)"}
 def med(xs):
     xs = sorted(xs); q = st.quantiles(xs, n=4); return st.median(xs), q[0], q[2]
 for th in sorted({r["threads"] for r in rows}, key=int):

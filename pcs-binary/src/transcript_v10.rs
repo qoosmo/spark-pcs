@@ -27,9 +27,10 @@ use crate::security::{soundness_bits_from, SecurityReport};
 
 pub const FS_DOMAIN_V10: &[u8] = b"SPARK-FS-v0.10";
 pub const GATE_DOMAIN_V10: &[u8] = b"SPARK-GATE-v0.10-tplus1";
-/// v0.10 proof format. The `block-leaves` experiment uses a distinct format byte (11),
-/// which enters the header and hence the Fiat-Shamir transcript.
-pub const PROOF_FORMAT_VERSION_V10: u8 = if cfg!(feature = "block-leaves") { 11 } else { 10 };
+/// v0.10 proof format byte (enters the header, hence the Fiat-Shamir transcript).
+/// 12 = v0.10 (group leaves, keyed hashing); 10 = v0.10-rc1 layout (`rc1-layout` feature).
+/// 11 was the unkeyed group-leaf experiment of Brief 19.
+pub const PROOF_FORMAT_VERSION_V10: u8 = if cfg!(feature = "rc1-layout") { 10 } else { 12 };
 pub const HASH_ID_BLAKE3: u8 = 1;
 pub const HASH_ID_SHA256: u8 = 2;
 pub const FIELD_ID_F128: u8 = 1;
@@ -58,6 +59,68 @@ pub struct ValidatedParamsV10<'a> {
 impl<'a> ValidatedParamsV10<'a> {
     pub fn params(&self) -> &'a ParamsV10 {
         self.params
+    }
+}
+
+/// Named v0.10 parameter sets on the pinned production setup (n = 20, k = 2, i0 = 3).
+/// Both have the same soundness bound and query count; they differ only in the
+/// commitment schedule.
+#[cfg(feature = "tplus1")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileV10 {
+    /// Commit every 3 layers: smallest proof.
+    Compact,
+    /// Commit every 4 layers: fastest prover, about 12% larger proof.
+    Fast,
+}
+
+#[cfg(feature = "tplus1")]
+impl ProfileV10 {
+    pub fn commit_every(self) -> usize {
+        match self {
+            ProfileV10::Compact => 3,
+            ProfileV10::Fast => 4,
+        }
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            ProfileV10::Compact => "compact",
+            ProfileV10::Fast => "fast",
+        }
+    }
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "compact" => Some(ProfileV10::Compact),
+            "fast" => Some(ProfileV10::Fast),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(feature = "tplus1")]
+impl ParamsV10 {
+    /// Production parameters for a named profile: n = 20, k = 2, i0 = 3, s = 407, g = 16,
+    /// BLAKE3, 192-bit target, pinned public setup.
+    pub fn profile(p: ProfileV10) -> Self {
+        Self {
+            n: 20,
+            k: 2,
+            i0: 3,
+            s: 407,
+            g: 16,
+            t: 1,
+            commit_every: p.commit_every(),
+            gate_seed: crate::encode::V10_TPLUS1_PUBLIC_GATE_SEED,
+            setup_counter: crate::encode::V10_TPLUS1_N20_K2_I0_3_SETUP_COUNTER,
+            hash_kind: HashKind::Blake3,
+            target_bits: 192,
+        }
+    }
+    pub fn compact() -> Self {
+        Self::profile(ProfileV10::Compact)
+    }
+    pub fn fast() -> Self {
+        Self::profile(ProfileV10::Fast)
     }
 }
 

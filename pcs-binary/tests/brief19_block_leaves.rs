@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-#![cfg(feature = "block-leaves")]
+#![cfg(not(feature = "rc1-layout"))]
 use spark_binary::{
     encode::{GateFamily, V10_TPLUS1_N20_K2_I0_3_SETUP_COUNTER, V10_TPLUS1_PUBLIC_GATE_SEED},
     field::F128,
@@ -41,7 +41,7 @@ fn block_leaves_round_trip_and_tamper() {
             let fam = GateFamily::from_seed_and_counter(p.n, p.k, p.gate_seed, p.setup_counter);
             let run = prove_and_verify_sparse_v10(&coeffs(n), &fam, &p).expect("honest proof verifies");
             assert!(run.verified);
-            assert_eq!(run.proof.proof_format_version, 11, "block-leaves format byte");
+            assert_eq!(run.proof.proof_format_version, 12, "v0.10 format byte");
 
             // Tamper with a first-layer opened value.
             let mut bad = run.proof.clone();

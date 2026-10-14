@@ -4,10 +4,10 @@
 set -euo pipefail
 ROOT=$(git rev-parse --show-toplevel); cd "$ROOT"
 OUT=${1:-$HOME/brief19_m1}; mkdir -p "$OUT"
-cargo build --release -q -p spark-binary --bin brief19_block_leaves_bench --bin brief19_commit_microbench
+cargo build --release -q -p spark-binary --features rc1-layout --bin brief19_block_leaves_bench --bin brief19_commit_microbench
 cp target/release/brief19_block_leaves_bench "$OUT/bench_pair"
 cp target/release/brief19_commit_microbench "$OUT/microbench"
-cargo build --release -q -p spark-binary --features block-leaves --bin brief19_block_leaves_bench
+cargo build --release -q -p spark-binary --bin brief19_block_leaves_bench
 cp target/release/brief19_block_leaves_bench "$OUT/bench_block"
 S=pcs-binary/scripts/brief19
 echo "variant,n,c,threads,commit_ms,root" > "$OUT/micro.csv"

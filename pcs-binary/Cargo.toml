@@ -1,6 +1,6 @@
 [package]
 name = "spark-binary"
-version = "0.8.0"
+version = "0.10.0"
 edition = "2021"
 
 [features]
@@ -8,7 +8,7 @@ default = ["tplus1"]
 tplus1 = []
 legacy-gates = []
 brief18t_instrument = []
-block-leaves = []
+rc1-layout = []
 
 [dependencies]
 blake3 = "1"
@@ -34,6 +34,11 @@ harness = false
 [[bench]]
 name = "blake3_one_hash"
 harness = false
+
+[[bin]]
+name = "v010_release_smoke"
+path = "src/bin/v010_release_smoke.rs"
+required-features = ["tplus1"]
 
 [[bin]]
 name = "brief18v_v010_smoke"

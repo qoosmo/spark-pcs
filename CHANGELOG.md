@@ -2,6 +2,33 @@
 
 # Changelog
 
+## v0.10 - 2026-10-14
+
+- Default: `(t,t+1)` gates plus **keyed group leaves**. Proof-format version `12`.
+- **Group leaves.** One Merkle leaf per query group of `2^d` entries
+  (`d = min(m, n-b)`), matching the commitment schedule. The opened field
+  elements are identical to rc1; only the leaf grouping and path depth change.
+- **Keyed hashing.** Leaves and nodes use BLAKE3 keyed mode with keys
+  `derive_key("SPARK-BINARY v0.10 Merkle leaf")` and
+  `derive_key("SPARK-BINARY v0.10 Merkle node")`. An internal node is one
+  compression. The SHA-256 fallback uses prefix tags `SPARK-BINARY-LEAF-v0.10` / `-NODE-v0.10`.
+- Commitment at `n=20,k=2`: `7,489,810 -> 1,947,349` BLAKE3 compressions (`m=3`, `-74%`),
+  `6,850,678 -> 1,467,999` (`m=4`, `-79%`).
+- **Two named profiles**, same soundness bound and `s=407`:
+  - `ParamsV10::compact()`: `commit_every = 3`, proof `591,562` bytes (pinned);
+  - `ParamsV10::fast()`: `commit_every = 4`, proof `647,522` bytes (pinned).
+  Each profile's proof is rejected under the other's parameters.
+- Security: Theorem 6.7 is stated in the IOP model; Merkle binding holds for any fixed
+  public grouping, and leaves and nodes are separated by key. `s`, the challenge field
+  and the soundness bound are unchanged.
+- Apple M1, one thread, `n=20` (four-way run, tagged group leaves): prover `1669 -> 882 ms`
+  at `m=3` (`1.89x`) and `1567 -> 738 ms` at `m=4` (`2.12x`) versus v0.9.1. Keyed hashing
+  removes a further `30%` (`m=3`) / `22%` (`m=4`) of commit time (Xeon microbenchmark).
+- Reproduce rc1 (pair leaves, format 10) with `--features rc1-layout`; v0.9 gates with
+  `--no-default-features --features legacy-gates`.
+- New binary `v010_release_smoke`; benchmark scripts in `pcs-binary/scripts/brief19/`.
+- Paper: §7.2 "Leaf layout and hashing cost".
+
 ## v0.10-rc1 - 2026-10-12
 
 - `(t,t+1)` is the default gate family. Reproduce v0.9 gates with

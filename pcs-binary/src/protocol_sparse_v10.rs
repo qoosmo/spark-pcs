@@ -275,15 +275,16 @@ fn fold_ext(g: Gate, w0: F256, w1: F256, z: F256) -> F256 {
     let lambda = (z + F256::from_base(g.t0)).mul_base(g.inv_dt);
     w0 + lambda * (w1 + w0)
 }
-/// Leaf grouping for a committed layer whose next segment folds `d` times.
-/// With `block-leaves`, one leaf = the whole aligned block of `2^d` elements
-/// (`2^{d-1}` pairs) that a query reads; otherwise one leaf per pair.
+/// Merkle layout of a committed layer whose next segment folds `d` times.
+/// v0.10: one leaf = the whole aligned group of `2^d` entries that a query reads,
+/// keyed BLAKE3 hashing. The `rc1-layout` feature restores the v0.10-rc1 layout
+/// (one pair per leaf, prefixed hashing) for comparison benchmarks.
 #[inline]
-fn leaf_group_log(d: usize) -> u32 {
-    if cfg!(feature = "block-leaves") {
-        (d - 1) as u32
+fn v10_layout(d: usize) -> crate::merkle_v05::Layout {
+    if cfg!(feature = "rc1-layout") {
+        crate::merkle_v05::Layout::PAIR
     } else {
-        0
+        crate::merkle_v05::Layout::v10((d - 1) as u32)
     }
 }
 
@@ -1116,13 +1117,13 @@ pub fn verify_sparse_v10_validated(
     let ix0 = source_pair_indices(&q0s, 0, d0);
 
     let merkle_start = Instant::now();
-    let ok0 = MerkleTreeV05::<F128>::verify_pairs_grouped(
+    let ok0 = MerkleTreeV05::<F128>::verify_pairs_layout(
         commitment,
         leaves0,
         &ix0,
         &proof.body.opening0,
         params.hash_kind,
-        leaf_group_log(d0),
+        v10_layout(d0),
     );
     profile.merkle += merkle_start.elapsed();
     if !ok0 {
@@ -1153,14 +1154,14 @@ pub fn verify_sparse_v10_validated(
         let leaves = leaves0 >> b;
 
         let merkle_start = Instant::now();
-        let pairs = MerkleTreeV05::<F256>::verify_pairs_compact_grouped(
+        let pairs = MerkleTreeV05::<F256>::verify_pairs_compact_layout(
             &proof.body.folded_roots[j],
             leaves,
             &ix,
             &known,
             &proof.body.folded_openings[j],
             params.hash_kind,
-            leaf_group_log(d),
+            v10_layout(d),
         )
         .ok_or(VerifyErrorV10::InvalidProof)?;
         profile.merkle += merkle_start.elapsed();
@@ -1209,10 +1210,10 @@ pub fn prove_and_verify_sparse_v10(
     #[cfg(feature = "brief18t_instrument")]
     crate::instrument::set_phase(crate::instrument::COMMIT);
     let tc = Instant::now();
-    let tree0 = MerkleTreeV05::<F128>::from_pairs_grouped(
+    let tree0 = MerkleTreeV05::<F128>::with_layout(
         &word0,
         params.hash_kind,
-        leaf_group_log(params.commit_every.min(family.n)),
+        v10_layout(params.commit_every.min(family.n)),
     );
     let commitment = tree0.root();
     let commit0 = tc.elapsed();
@@ -1252,10 +1253,10 @@ pub fn prove_and_verify_sparse_v10(
             #[cfg(feature = "brief18t_instrument")]
             crate::instrument::set_phase(crate::instrument::COMMIT);
             let tc = Instant::now();
-            let tree = MerkleTreeV05::<F256>::from_pairs_grouped(
+            let tree = MerkleTreeV05::<F256>::with_layout(
                 &next,
                 params.hash_kind,
-                leaf_group_log(params.commit_every.min(family.n - b)),
+                v10_layout(params.commit_every.min(family.n - b)),
             );
             let root = tree.root();
             commit_folds += tc.elapsed();
@@ -1628,10 +1629,10 @@ mod brief18t_structure_tests {
         params: &crate::transcript_v10::ParamsV10,
     ) -> (Hash, SparseProofV10, Vec<Vec<F256>>) {
         let word0 = encode_generic(coeffs, family);
-        let tree0 = MerkleTreeV05::<F128>::from_pairs_grouped(
+        let tree0 = MerkleTreeV05::<F128>::with_layout(
         &word0,
         params.hash_kind,
-        leaf_group_log(params.commit_every.min(family.n)),
+        v10_layout(params.commit_every.min(family.n)),
     );
         let commitment = tree0.root();
 
@@ -1661,10 +1662,10 @@ mod brief18t_structure_tests {
 
             let b = r + 1;
             if b < family.n && b % params.commit_every == 0 {
-                let tree = MerkleTreeV05::<F256>::from_pairs_grouped(
+                let tree = MerkleTreeV05::<F256>::with_layout(
                 &next,
                 params.hash_kind,
-                leaf_group_log(params.commit_every.min(family.n - b)),
+                v10_layout(params.commit_every.min(family.n - b)),
             );
                 let root = tree.root();
                 roots.push(root);

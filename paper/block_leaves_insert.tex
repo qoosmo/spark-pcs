@@ -17,13 +17,30 @@ C_{\mathrm{pair}}=\tfrac{L}{2}\,\kappa(\tau_{\mathrm{leaf}}+2\sigma)+\bigl(\tfra
 \qquad
 C_{\mathrm{grp}}=\tfrac{L}{2^m}\,\kappa(\tau_{\mathrm{grp}}+2^m\sigma)+\bigl(\tfrac{L}{2^m}-1\bigr)\kappa(\tau_{\mathrm{node}}+64)
 \]
-compressions. In the implementation $\tau_{\mathrm{leaf}}=\tau_{\mathrm{node}}=22$ and
-$\tau_{\mathrm{grp}}=21$, so an internal node costs $\kappa(86)=2$ compressions.
+compressions. With tags written into the input ($\tau_{\mathrm{leaf}}=\tau_{\mathrm{node}}=22$,
+$\tau_{\mathrm{grp}}=21$), an internal node costs $\kappa(86)=2$ compressions.
+
+\emph{Keyed hashing.} BLAKE3 has a keyed mode whose key enters the chaining value and costs no
+input bytes. Taking the domain tag as the key, $K_{\mathrm{leaf}}=\mathrm{derive\_key}(\text{``SPARK-BINARY v0.10 Merkle leaf''})$ and
+$K_{\mathrm{node}}=\mathrm{derive\_key}(\text{``SPARK-BINARY v0.10 Merkle node''})$, gives
+$\tau_{\mathrm{grp}}=\tau_{\mathrm{node}}=0$. An internal node is then one compression of its two
+$32$-byte children, and a group leaf costs $\kappa(2^m\sigma)$.
 
 For the first layer ($\sigma=16$) and $m=3$, one group costs $4\cdot1+3\cdot2=10$ compressions with
-pair leaves and $\kappa(149)=3$ with a group leaf. Over all committed layers at $n=20$, $k=2$, the
-commitment drops from $7{,}489{,}810$ to $3{,}145{,}718$ compressions ($-58\%$) for $m=3$. It drops
-by $-35\%$ for $m=2$ and by $-70\%$ for $m=4$.
+pair leaves, $\kappa(149)=3$ with a tagged group leaf and $\kappa(128)=2$ with a keyed group leaf.
+Over all committed layers at $n=20$, $k=2$:
+\begin{center}
+\begin{tabular}{rrrrr}
+\toprule
+$m$ & pair leaves & group leaves, tagged & group leaves, keyed & change\\
+\midrule
+2 & $9{,}087{,}628$ & $5{,}941{,}904$ & $3{,}145{,}714$ & $-65\%$\\
+3 & $7{,}489{,}810$ & $3{,}145{,}718$ & $1{,}947{,}349$ & $-74\%$\\
+4 & $6{,}850{,}678$ & $2{,}027{,}234$ & $1{,}467{,}999$ & $-79\%$\\
+\bottomrule
+\end{tabular}
+\end{center}
+The keyed group layout is the one used from v0.10 on.
 
 \paragraph{Proof and verifier.} The opened field elements are the same in both layouts. Each
 authentication path is $m-1$ levels shorter, but those levels lie inside the group and were already
@@ -33,12 +50,14 @@ verifier hashes one leaf per group instead of $2^{m-1}$ leaves and $2^{m-1}-1$ n
 
 \paragraph{Security.} The proof of Theorem~\ref{thm:schedule} works in the IOP model, where a root is
 an oracle to the whole table and the grouping of leaves plays no role. Merkle binding holds for any
-fixed public grouping. Group leaves carry their own domain tag, so they cannot be confused with pair
-leaves or internal nodes, and the format byte separates the two layouts in the transcript. The
+fixed public grouping. Leaves and internal nodes are hashed under distinct keys derived from
+distinct context strings, so a leaf cannot be confused with a node. Keyed BLAKE3 is a PRF under its
+key and is collision resistant for a fixed public key, which is all Merkle binding needs. The format
+byte separates the layouts in the transcript. The
 soundness bound, the query count $s$ and the challenge field are unchanged.
 
-\paragraph{Measurements.} Table~\ref{tab:block-leaves} reports the commitment phase alone. It
-builds exactly the trees of the prover on the same tables, with the two layouts interleaved in one
+\paragraph{Measurements.} Table~\ref{tab:block-leaves} reports the commitment phase alone, with tagged
+leaves. It builds exactly the trees of the prover on the same tables, with the layouts interleaved in one
 process. Table~\ref{tab:block-leaves-e2e} reports full proofs for all four combinations of gate family and
 leaf layout.
 \begin{table}[h]
@@ -60,7 +79,9 @@ repetitions; the interquartile ranges do not overlap.}
 \end{table}
 The time follows the compression count: about $126$\,ns per compression with pair leaves and
 $135$--$150$\,ns with group leaves on one thread. The relative changes are the same on an Intel
-Xeon at $2.8$\,GHz ($-30\%$, $-56\%$, $-65\%$ at $n=20$).
+Xeon at $2.8$\,GHz ($-30\%$, $-56\%$, $-65\%$ at $n=20$). Keyed hashing removes a further
+$30\%$ of the commitment time at $m=3$ ($295\to205$\,ms) and $22\%$ at $m=4$ ($214\to167$\,ms) on the
+Xeon, one thread, median of 6 interleaved repetitions.
 
 \begin{table}[h]
 \centering
@@ -78,7 +99,8 @@ $(t,t+1)$, group & \textbf{882 ms} & 8.4 ms & 585{,}706 B & \textbf{738 ms} & 9.
 \end{tabular}
 \caption{Full proofs at $n=20$, $k=2$, $s=407$, $g=16$, one thread, Apple M1. All four
 configurations are built from the same commit and measured in one session, cycling through them in every round (median of 20
-runs each). The first row has the cost of v0.9.1 (random gates, pair leaves).}
+runs each). The first row has the cost of v0.9.1 (random gates, pair leaves). Group leaves are
+tagged here; the keyed layout of v0.10 is faster still.}
 \label{tab:block-leaves-e2e}
 \end{table}
 
@@ -93,7 +115,3 @@ there.
 The two schedules serve different needs. The \emph{compact} profile $m=3$ gives the smallest proof
 ($586$\,KB). The \emph{fast} profile $m=4$ gives the fastest prover ($738$\,ms on one thread,
 $176$\,ms on eight) for a proof $12\%$ larger. Both have the same soundness bound and query count.
-
-\paragraph{Further saving.} An internal node hashes a $22$-byte tag and $64$ bytes, i.e.\ two
-compressions. Moving the tag into the key of a keyed hash leaves a $64$-byte input, i.e.\ one
-compression. This would halve the cost of the remaining internal nodes.

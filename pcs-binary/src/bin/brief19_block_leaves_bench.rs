@@ -18,9 +18,8 @@ use spark_binary::{
     transcript_v10::ParamsV10,
 };
 
-const DOMAIN_LEAF: usize = 22; // "SPARK-BINARY-LEAF-v0.5"
-const DOMAIN_NODE: usize = 22; // "SPARK-BINARY-NODE-v0.5"
-const DOMAIN_BLOCK: usize = 21; // "SPARK-BINARY-BLOCK-v1"
+const DOMAIN_LEAF: usize = 22; // "SPARK-BINARY-LEAF-v0.5" (rc1 layout)
+const DOMAIN_NODE: usize = 22; // "SPARK-BINARY-NODE-v0.5" (rc1 layout)
 
 fn blake3_compressions(len: usize) -> u64 {
     // Single-chunk messages (<= 1024 bytes): one compression per 64-byte block.
@@ -33,13 +32,12 @@ fn blake3_compressions(len: usize) -> u64 {
 fn tree_cost(elems: usize, size: usize, g: u32) -> (u64, u64) {
     let pairs = elems / 2;
     let leaves = (pairs >> g) as u64;
-    let leaf_len = if g == 0 {
-        DOMAIN_LEAF + 2 * size
-    } else {
-        DOMAIN_BLOCK + (2usize << g) * size
-    };
+    // rc1 layout: prefixed pair leaves and nodes. v0.10: keyed group leaves and keyed nodes.
+    let keyed = !cfg!(feature = "rc1-layout");
+    let leaf_len = if keyed { (2usize << g) * size } else { DOMAIN_LEAF + 2 * size };
+    let node_len = if keyed { 64 } else { DOMAIN_NODE + 64 };
     let calls = leaves + (leaves - 1);
-    let comp = leaves * blake3_compressions(leaf_len) + (leaves - 1) * blake3_compressions(DOMAIN_NODE + 64);
+    let comp = leaves * blake3_compressions(leaf_len) + (leaves - 1) * blake3_compressions(node_len);
     (calls, comp)
 }
 
@@ -64,9 +62,9 @@ fn main() {
     let c: usize = args.get(2).map(|s| s.parse().unwrap()).unwrap_or(3);
     let runs: usize = args.get(3).map(|s| s.parse().unwrap()).unwrap_or(5);
     let warm: usize = args.get(4).map(|s| s.parse().unwrap()).unwrap_or(1);
-    let block = cfg!(feature = "block-leaves");
+    let block = !cfg!(feature = "rc1-layout");
     let gates = if cfg!(feature = "tplus1") { "tplus1" } else { "random" };
-    let variant = format!("{gates}-{}", if block { "block" } else { "pair" });
+    let variant = format!("{gates}-{}", if block { "v10" } else { "rc1" });
 
     let p = ParamsV10 {
         n,

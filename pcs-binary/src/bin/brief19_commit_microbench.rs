@@ -3,7 +3,7 @@
 //! prover builds (layer 0 over GF(2^128), committed layers over GF(2^256)), with pair
 //! leaves (g = 0) and with block leaves (g = d - 1), interleaved in one process.
 //! Usage: brief19_commit_microbench <n> <commit_every> <reps>
-use spark_binary::{extfield::F256, field::F128, merkle_v05::{HashKind, MerkleTreeV05}};
+use spark_binary::{extfield::F256, field::F128, merkle_v05::{HashKind, Layout, MerkleTreeV05}};
 use std::time::Instant;
 
 fn main() {
@@ -31,28 +31,31 @@ fn main() {
     }
     let d0 = c.min(n);
     let threads = rayon::current_num_threads();
-    let run = |block: bool| -> (f64, [u8; 32]) {
-        let g = |d: usize| if block { (d - 1) as u32 } else { 0 };
+    // mode 0 = rc1 (pair leaves, prefixed); 1 = group leaves, prefixed; 2 = v0.10 (group, keyed)
+    let run = |mode: u8| -> (f64, [u8; 32]) {
+        let lay = |d: usize| match mode {
+            0 => Layout::PAIR,
+            1 => Layout { group_log: (d - 1) as u32, keyed: false },
+            _ => Layout::v10((d - 1) as u32),
+        };
         let t = Instant::now();
-        let t0 = MerkleTreeV05::<F128>::from_pairs_grouped(&w0, HashKind::Blake3, g(d0));
+        let t0 = MerkleTreeV05::<F128>::with_layout(&w0, HashKind::Blake3, lay(d0));
         let mut acc = t0.root();
         for (d, w) in &layers {
-            let tr = MerkleTreeV05::<F256>::from_pairs_grouped(w, HashKind::Blake3, g(*d));
+            let tr = MerkleTreeV05::<F256>::with_layout(w, HashKind::Blake3, lay(*d));
             acc[0] ^= tr.root()[0];
         }
         (t.elapsed().as_secs_f64() * 1e3, acc)
     };
-    // warmup
-    let _ = run(false);
-    let _ = run(true);
+    for m in 0..3u8 {
+        let _ = run(m); // warmup
+    }
+    let names = ["pair", "block", "v10"];
     for r in 0..reps {
-        for &block in if r % 2 == 0 { &[false, true] } else { &[true, false] } {
-            let (ms, root) = run(block);
-            println!(
-                "{},{n},{c},{threads},{ms:.3},{:02x}",
-                if block { "block" } else { "pair" },
-                root[0]
-            );
+        let order: [u8; 3] = if r % 2 == 0 { [0, 1, 2] } else { [2, 1, 0] };
+        for m in order {
+            let (ms, root) = run(m);
+            println!("{},{n},{c},{threads},{ms:.3},{:02x}", names[m as usize], root[0]);
         }
     }
 }
