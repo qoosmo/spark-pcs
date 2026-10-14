@@ -118,3 +118,7 @@ Pinned result:
 ## License
 
 Dual-licensed under MIT or Apache-2.0, at your option.
+
+## Diagrams
+
+- [Step-by-step protocol evolution](paper/diagrams/spark_evolution_diagram.pdf): prover state, messages and verifier knowledge at each round, with a worked example over F_7 and the production sizes.
