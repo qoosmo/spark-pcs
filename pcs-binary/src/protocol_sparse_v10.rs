@@ -1790,7 +1790,11 @@ mod brief18t_structure_tests {
             assert_eq!(next, glayers[r], "folded layer {r} differs");
             let b = r + 1;
             if b < family.n && b % p.commit_every == 0 {
-                let tree = MerkleTreeV05::<F256>::from_pairs(&next, p.hash_kind);
+                let tree = MerkleTreeV05::<F256>::with_layout(
+                    &next,
+                    p.hash_kind,
+                    v10_layout(p.commit_every.min(family.n - b)),
+                );
                 state.extend_from_slice(&tree.root());
             }
             cur = Some(next);
