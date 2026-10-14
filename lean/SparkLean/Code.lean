@@ -28,6 +28,16 @@ def ML.eval : {i : ℕ} → ML F i → (Fin i → F) → F
   | 0, c, _ => c
   | _ + 1, p, r => ML.eval p.1 (Fin.tail r) + r 0 * ML.eval p.2 (Fin.tail r)
 
+/-- The zero multilinear polynomial. -/
+def ML.zero : (i : ℕ) → ML F i
+  | 0 => 0
+  | i + 1 => (ML.zero i, ML.zero i)
+
+/-- Coefficientwise addition of recursive multilinear polynomials. -/
+def ML.add : {i : ℕ} → ML F i → ML F i → ML F i
+  | 0, p, q => p + q
+  | _ + 1, p, q => (ML.add p.1 q.1, ML.add p.2 q.2)
+
 /-- Scalar multiple of a recursive multilinear polynomial. -/
 def ML.smul (a : F) : {i : ℕ} → ML F i → ML F i
   | 0, c => a * c
@@ -67,6 +77,22 @@ lemma pt_siblings (T : (i : ℕ) → Pos β i → Bool → F) {i : ℕ} (ω' : P
     pt T (show Pos β (i + 1) from (ω', false)) m.succ
       = pt T (show Pos β (i + 1) from (ω', true)) m.succ := by
   rw [pt_succ, pt_succ]
+
+/-- Encoding preserves the zero polynomial. -/
+lemma enc_zero (T : (i : ℕ) → Pos β i → Bool → F) :
+    ∀ {i : ℕ} (ω : Pos β i), enc T (ML.zero i) ω = 0
+  | 0, ω => rfl
+  | i + 1, ω => by
+      simp only [enc, ML.zero, enc_zero T ω.1, mul_zero, add_zero]
+
+/-- Encoding preserves addition for every per-node family of structural points. -/
+lemma enc_add (T : (i : ℕ) → Pos β i → Bool → F) :
+    ∀ {i : ℕ} (P Q : ML F i) (ω : Pos β i),
+      enc T (ML.add P Q) ω = enc T P ω + enc T Q ω
+  | 0, P, Q, ω => rfl
+  | i + 1, P, Q, ω => by
+      simp only [enc, ML.add, enc_add T P.1 Q.1, enc_add T P.2 Q.2]
+      ring
 
 /-- The encoding is compatible with scalar multiplication. -/
 lemma enc_smul (T : (i : ℕ) → Pos β i → Bool → F) (a : F) :
