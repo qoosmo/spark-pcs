@@ -2,8 +2,16 @@
 //! Brief 19 benchmark: pair leaves (default) vs block leaves (`--features block-leaves`).
 //! Usage: brief19_block_leaves_bench <n> <commit_every> <runs> [warmups]
 //! Prints one CSV row per measured run.
+#[cfg(feature = "tplus1")]
+use spark_binary::encode::{
+    V10_TPLUS1_N20_K2_I0_3_SETUP_COUNTER as SETUP_COUNTER, V10_TPLUS1_PUBLIC_GATE_SEED as GATE_SEED,
+};
+#[cfg(not(feature = "tplus1"))]
+use spark_binary::encode::{
+    V09_N20_K2_I0_3_SETUP_COUNTER as SETUP_COUNTER, V09_PUBLIC_GATE_SEED as GATE_SEED,
+};
 use spark_binary::{
-    encode::{GateFamily, V10_TPLUS1_N20_K2_I0_3_SETUP_COUNTER, V10_TPLUS1_PUBLIC_GATE_SEED},
+    encode::GateFamily,
     field::F128,
     merkle_v05::HashKind,
     protocol_sparse_v10::prove_and_verify_sparse_v10,
@@ -57,7 +65,8 @@ fn main() {
     let runs: usize = args.get(3).map(|s| s.parse().unwrap()).unwrap_or(5);
     let warm: usize = args.get(4).map(|s| s.parse().unwrap()).unwrap_or(1);
     let block = cfg!(feature = "block-leaves");
-    let variant = if block { "block" } else { "pair" };
+    let gates = if cfg!(feature = "tplus1") { "tplus1" } else { "random" };
+    let variant = format!("{gates}-{}", if block { "block" } else { "pair" });
 
     let p = ParamsV10 {
         n,
@@ -67,8 +76,8 @@ fn main() {
         g: 16,
         t: 1,
         commit_every: c,
-        gate_seed: V10_TPLUS1_PUBLIC_GATE_SEED,
-        setup_counter: V10_TPLUS1_N20_K2_I0_3_SETUP_COUNTER,
+        gate_seed: GATE_SEED,
+        setup_counter: SETUP_COUNTER,
         hash_kind: HashKind::Blake3,
         target_bits: 192,
     };
