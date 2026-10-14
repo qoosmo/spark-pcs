@@ -27,7 +27,9 @@ use crate::security::{soundness_bits_from, SecurityReport};
 
 pub const FS_DOMAIN_V10: &[u8] = b"SPARK-FS-v0.10";
 pub const GATE_DOMAIN_V10: &[u8] = b"SPARK-GATE-v0.10-tplus1";
-pub const PROOF_FORMAT_VERSION_V10: u8 = 10;
+/// v0.10 proof format. The `block-leaves` experiment uses a distinct format byte (11),
+/// which enters the header and hence the Fiat-Shamir transcript.
+pub const PROOF_FORMAT_VERSION_V10: u8 = if cfg!(feature = "block-leaves") { 11 } else { 10 };
 pub const HASH_ID_BLAKE3: u8 = 1;
 pub const HASH_ID_SHA256: u8 = 2;
 pub const FIELD_ID_F128: u8 = 1;

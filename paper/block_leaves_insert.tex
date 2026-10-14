@@ -1,0 +1,69 @@
+\subsection{Leaf layout and hashing cost}
+\label{sec:block-leaves}
+
+With a commitment schedule, the query phase never reads a single block of a committed layer in
+isolation. For a committed layer $j_0$ followed by a run of length $m$, every query opens the whole
+group of $2^m$ entries of $E_{j_0}$ below the prefix $\omega^{(j_0+m)}$
+(Definition of a commitment schedule). The natural Merkle leaf is therefore this group. A tree with
+one leaf per pair hashes the same data, but it also builds the $2^{m-1}-1$ internal nodes inside
+every group. Their digests are never sent, since the verifier recomputes them from the opened entries.
+
+\paragraph{Hash count.} Let a committed layer have $L$ entries of $\sigma$ bytes, and let
+$\kappa(\ell)=\lceil \ell/64\rceil$ be the number of BLAKE3 compressions for an $\ell$-byte input
+($\ell\le1024$). With domain tags of $\tau_{\mathrm{leaf}}$, $\tau_{\mathrm{grp}}$ and
+$\tau_{\mathrm{node}}$ bytes, the two layouts cost
+\[
+C_{\mathrm{pair}}=\tfrac{L}{2}\,\kappa(\tau_{\mathrm{leaf}}+2\sigma)+\bigl(\tfrac{L}{2}-1\bigr)\kappa(\tau_{\mathrm{node}}+64),
+\qquad
+C_{\mathrm{grp}}=\tfrac{L}{2^m}\,\kappa(\tau_{\mathrm{grp}}+2^m\sigma)+\bigl(\tfrac{L}{2^m}-1\bigr)\kappa(\tau_{\mathrm{node}}+64)
+\]
+compressions. In the implementation $\tau_{\mathrm{leaf}}=\tau_{\mathrm{node}}=22$ and
+$\tau_{\mathrm{grp}}=21$, so an internal node costs $\kappa(86)=2$ compressions.
+
+For the first layer ($\sigma=16$) and $m=3$, one group costs $4\cdot1+3\cdot2=10$ compressions with
+pair leaves and $\kappa(149)=3$ with a group leaf. Over all committed layers at $n=20$, $k=2$, the
+commitment drops from $7{,}489{,}810$ to $3{,}145{,}718$ compressions ($-58\%$) for $m=3$. It drops
+by $-35\%$ for $m=2$ and by $-70\%$ for $m=4$.
+
+\paragraph{Proof and verifier.} The opened field elements are the same in both layouts. Each
+authentication path is $m-1$ levels shorter, but those levels lie inside the group and were already
+recomputed by the verifier. So the proof changes only through the deduplication of shared paths,
+which depends on the query positions; in our measurements the change stays within $\pm2\%$. The
+verifier hashes one leaf per group instead of $2^{m-1}$ leaves and $2^{m-1}-1$ nodes.
+
+\paragraph{Security.} The proof of Theorem~\ref{thm:schedule} works in the IOP model, where a root is
+an oracle to the whole table and the grouping of leaves plays no role. Merkle binding holds for any
+fixed public grouping. Group leaves carry their own domain tag, so they cannot be confused with pair
+leaves or internal nodes, and the format byte separates the two layouts in the transcript. The
+soundness bound, the query count $s$ and the challenge field are unchanged.
+
+\paragraph{Measurements.} Table~\ref{tab:block-leaves} reports the commitment phase alone. It builds
+exactly the trees of the prover on the same tables, with the two layouts interleaved in one process.
+\begin{table}[h]
+\centering
+\begin{tabular}{rrrrrr}
+\toprule
+$n$ & $m$ & pair leaves (ms) & group leaves (ms) & change & compressions\\
+\midrule
+16 & 3 & 39.8 & 18.7 & $-53\%$ & $468{,}100\to196{,}604$\\
+18 & 3 & 168.0 & 87.3 & $-48\%$ & $1{,}872{,}436\to786{,}416$\\
+20 & 2 & 825.2 & 576.0 & $-30\%$ & $9{,}087{,}628\to5{,}941{,}904$\\
+20 & 3 & 636.8 & 280.2 & $-56\%$ & $7{,}489{,}810\to3{,}145{,}718$\\
+20 & 4 & 605.6 & 211.5 & $-65\%$ & $6{,}850{,}678\to2{,}027{,}234$\\
+\bottomrule
+\end{tabular}
+\caption{Commitment phase, $k=2$, BLAKE3, one thread, median of 20 interleaved repetitions
+(interquartile ranges do not overlap). Machine: Intel Xeon at 2.8\,GHz.}
+\label{tab:block-leaves}
+\end{table}
+The measured time follows the compression count closely: about $85$--$105$\,ns per compression in
+both layouts.
+
+End to end at $n=20$, $m=3$, the proof is $594{,}218$ bytes with pair leaves and $585{,}706$ bytes with
+group leaves, and the verifier time is unchanged ($12.8$ vs $12.5$\,ms). On a platform where
+hashing is two thirds of the prover, as on the Apple M1 with hardware carry-less multiplication,
+the commitment saving is expected to cut the prover time by roughly a third.
+
+\paragraph{Further saving.} An internal node hashes a $22$-byte tag and $64$ bytes, i.e.\ two
+compressions. Moving the tag into the key of a keyed hash leaves a $64$-byte input, i.e.\ one
+compression. This would halve the cost of the remaining internal nodes.
