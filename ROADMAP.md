@@ -8,7 +8,7 @@
 - **Gates:** $(t,t+1)$, encoder $a=u+tv$, $b=a+v$, fold $\lambda=z+t$. Seed `0x50643f649c978b38`, counter 0. Theorem 3.19 unchanged.
 - **Merkle layout:** one keyed BLAKE3 leaf per query group of $2^m$ entries; an internal node is one compression. Commitment at $n=20$: $7.49$M $\to1.95$M compressions ($m=3$).
 - **Profiles:** `compact` ($m=3$, proof 591,562 B) and `fast` ($m=4$, proof 647,522 B). Same soundness and $s$.
-- **Measured** (M1, one thread, $n=20$, tagged group leaves): prover $1669\to882$ ms ($m=3$, $1.89\times$) and $1567\to738$ ms ($m=4$, $2.12\times$) vs v0.9.1. Keyed hashing removes another 22–30% of commit time.
+- **Measured** (M1, $n=20$, 40 interleaved runs, vs v0.9.1): prover $1709\to722$ ms ($m=3$, $2.37\times$) and $1622\to664$ ms ($m=4$, $2.44\times$) on one thread; $500\to201$ ms and $456\to159$ ms on eight. Verifier $11.0\to7.1$ ms ($m=3$).
 - **Setup convention:** the checked distance certificate fails with probability at most $2^{-128}$, as a one-time event that no prover attempt can re-roll. Conditioned on the accepted setup, online soundness targets 192 bits.
 - **Reproduce older layouts:** `--features rc1-layout` (pair leaves, format 10); `--no-default-features --features legacy-gates` (v0.9 gates).
 
@@ -32,7 +32,6 @@
 
 ### Paper
 - ~~GKL lemma, specialized gates, $k=3$ record, setup wording, §7.2 leaf layout~~ done.
-- Refresh Table 9 with the keyed layout (M1 four-way run).
 
 ### Lean (deferred)
 - Agent rounds for §5–6 Protocol/completeness and Soundness (Brief L1 tasks 3–4).

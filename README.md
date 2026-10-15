@@ -65,16 +65,16 @@ Profiles (`n=20, k=2, i0=3, g=16`, 192-bit target):
 | `ParamsV10::compact()` | 3 | 591,562 B | smallest proof |
 | `ParamsV10::fast()` | 4 | 647,522 B | fastest prover |
 
-Four-way comparison, Apple M1, one thread, `n=20` (median of 20 interleaved runs):
+Four-way comparison, Apple M1, `n=20`, median of 40 interleaved runs (prover total, ms):
 
-| gates, leaves | prover `m=3` | prover `m=4` |
-|---|---|---|
-| random, pair (v0.9.1) | 1669 ms | 1567 ms |
-| `(t,t+1)`, pair (rc1) | 1367 ms | 1305 ms |
-| random, group | 1137 ms | 1001 ms |
-| `(t,t+1)`, group | **882 ms** | **738 ms** |
+| gates, leaves | `m=3`, 1 thread | `m=4`, 1 thread | `m=3`, 8 threads | `m=4`, 8 threads |
+|---|---|---|---|---|
+| random, pair (v0.9.1) | 1709 | 1622 | 500 | 456 |
+| `(t,t+1)`, pair (rc1) | 1397 | 1330 | 431 | 419 |
+| random, keyed group | 1005 | 937 | 318 | 243 |
+| `(t,t+1)`, keyed group (**v0.10**) | **722** (2.37x) | **664** (2.44x) | **201** (2.49x) | **159** (2.87x) |
 
-Eight threads: `510 -> 323 ms` (`m=3`), `462 -> 176 ms` (`m=4`). The group rows used tagged leaves; keyed hashing (the v0.10 default) cuts commit time by another 22-30%.
+Verifier (1 thread): `11.0 -> 7.1 ms` (`m=3`), `14.1 -> 8.8 ms` (`m=4`). Raw data: `research/v010/`.
 
 Smoke: `cargo run --release -p spark-binary --bin v010_release_smoke`
 
