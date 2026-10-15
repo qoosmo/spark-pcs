@@ -21,9 +21,10 @@
 - Security: Theorem 6.7 is stated in the IOP model; Merkle binding holds for any fixed
   public grouping, and leaves and nodes are separated by key. `s`, the challenge field
   and the soundness bound are unchanged.
-- Apple M1, one thread, `n=20` (four-way run, tagged group leaves): prover `1669 -> 882 ms`
-  at `m=3` (`1.89x`) and `1567 -> 738 ms` at `m=4` (`2.12x`) versus v0.9.1. Keyed hashing
-  removes a further `30%` (`m=3`) / `22%` (`m=4`) of commit time (Xeon microbenchmark).
+- Apple M1, `n=20`, four-way run (40 interleaved runs), prover vs v0.9.1:
+  `1709 -> 722 ms` (`m=3`, `2.37x`) and `1622 -> 664 ms` (`m=4`, `2.44x`) on one thread;
+  `500 -> 201 ms` (`2.49x`) and `456 -> 159 ms` (`2.87x`) on eight. Commit `968 -> 296 ms` (`m=3`).
+  Verifier `11.0 -> 7.1 ms` (`m=3`). Raw data in `research/v010/`.
 - Reproduce rc1 (pair leaves, format 10) with `--features rc1-layout`; v0.9 gates with
   `--no-default-features --features legacy-gates`.
 - New binary `v010_release_smoke`; benchmark scripts in `pcs-binary/scripts/brief19/`.
