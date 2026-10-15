@@ -1,10 +1,12 @@
 #![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+#[cfg(not(feature = "tplus1"))]
+use crate::field::batch_inverse;
 use crate::{
     encode::{derive_gate_level_key, derive_raw_gate_from_level_key, encode, GateFamily},
     extfield::F256,
-    field::{batch_inverse, F128},
+    field::F128,
     gates::Gate,
     merkle_v05::{CompactOpening, Hash, HashKind, MerkleTreeV05, MultiOpening},
 };
@@ -259,11 +261,17 @@ fn derive_queries(
 
 #[inline]
 fn fold_first(g: Gate, w0: F128, w1: F128, z: F256) -> F256 {
+    #[cfg(feature = "tplus1")]
+    let lambda = z + F256::from_base(g.t0);
+    #[cfg(not(feature = "tplus1"))]
     let lambda = (z + F256::from_base(g.t0)).mul_base(g.inv_dt);
     F256::from_base(w0) + lambda.mul_base(w1 + w0)
 }
 #[inline]
 fn fold_ext(g: Gate, w0: F256, w1: F256, z: F256) -> F256 {
+    #[cfg(feature = "tplus1")]
+    let lambda = z + F256::from_base(g.t0);
+    #[cfg(not(feature = "tplus1"))]
     let lambda = (z + F256::from_base(g.t0)).mul_base(g.inv_dt);
     w0 + lambda * (w1 + w0)
 }
@@ -354,6 +362,9 @@ fn derive_sparse_gates_profiled(
 
     let den = raw.iter().map(|(a, b)| *a + *b).collect::<Vec<_>>();
     let t = Instant::now();
+    #[cfg(feature = "tplus1")]
+    let inv = vec![F128::ONE; den.len()];
+    #[cfg(not(feature = "tplus1"))]
     let inv = batch_inverse(&den);
     let inv_t = t.elapsed();
 
@@ -387,7 +398,16 @@ fn derive_fold_lambdas(
         .zip(gates.iter().copied())
         .map(|(&(level, _), g)| {
             let round = n - 1 - level;
-            (zs[round] + F256::from_base(g.t0)).mul_base(g.inv_dt)
+            {
+                #[cfg(feature = "tplus1")]
+                {
+                    zs[round] + F256::from_base(g.t0)
+                }
+                #[cfg(not(feature = "tplus1"))]
+                {
+                    (zs[round] + F256::from_base(g.t0)).mul_base(g.inv_dt)
+                }
+            }
         })
         .collect()
 }
@@ -1164,14 +1184,22 @@ pub fn prove_and_verify_sparse_v09(
         ));
     }
 
+    #[cfg(feature = "brief18t_instrument")]
+    crate::instrument::set_phase(crate::instrument::ENCODE);
     let te = Instant::now();
     let word0 = encode(coeffs, family);
     let encode_t = te.elapsed();
+    #[cfg(feature = "brief18t_instrument")]
+    crate::instrument::set_phase(crate::instrument::NONE);
 
+    #[cfg(feature = "brief18t_instrument")]
+    crate::instrument::set_phase(crate::instrument::COMMIT);
     let tc = Instant::now();
     let tree0 = MerkleTreeV05::<F128>::from_pairs(&word0, params.hash_kind);
     let commitment = tree0.root();
     let commit0 = tc.elapsed();
+    #[cfg(feature = "brief18t_instrument")]
+    crate::instrument::set_phase(crate::instrument::NONE);
 
     let header = params.header().map_err(VerifyErrorV09::InvalidParams)?;
     let boundaries = committed_boundaries(params.n, params.commit_every);
@@ -1189,6 +1217,8 @@ pub fn prove_and_verify_sparse_v09(
         let z =
             crate::transcript_v09::challenge_field_v09(&state, b"fold", r as u64, params.hash_kind);
 
+        #[cfg(feature = "brief18t_instrument")]
+        crate::instrument::set_phase(crate::instrument::FOLD);
         let tf = Instant::now();
         let next = if r == 0 {
             fold_first_level(&word0, &level.gates, z)
@@ -1196,13 +1226,19 @@ pub fn prove_and_verify_sparse_v09(
             fold_ext_level(current_ext.as_ref().unwrap(), &level.gates, z)
         };
         fold_total += tf.elapsed();
+        #[cfg(feature = "brief18t_instrument")]
+        crate::instrument::set_phase(crate::instrument::NONE);
 
         let b = r + 1;
         if b < family.n && b % params.commit_every == 0 {
+            #[cfg(feature = "brief18t_instrument")]
+            crate::instrument::set_phase(crate::instrument::COMMIT);
             let tc = Instant::now();
             let tree = MerkleTreeV05::<F256>::from_pairs(&next, params.hash_kind);
             let root = tree.root();
             commit_folds += tc.elapsed();
+            #[cfg(feature = "brief18t_instrument")]
+            crate::instrument::set_phase(crate::instrument::NONE);
 
             roots.push(root);
             state.extend_from_slice(&root);
@@ -1275,7 +1311,11 @@ pub fn prove_and_verify_sparse_v09(
         body,
     };
 
+    #[cfg(feature = "brief18t_instrument")]
+    crate::instrument::set_phase(crate::instrument::VERIFY);
     let verify = verify_sparse_v09_validated(&validated, &commitment, &proof)?;
+    #[cfg(feature = "brief18t_instrument")]
+    crate::instrument::set_phase(crate::instrument::NONE);
     let challenges = derive_zs_sparse_v09(params, &commitment, &proof.body.folded_roots)
         .ok_or(VerifyErrorV09::InvalidProof)?;
 
@@ -1450,5 +1490,352 @@ mod v09_transcript_tests {
                 got: 8,
             })
         ));
+    }
+}
+
+#[cfg(all(test, feature = "tplus1"))]
+mod brief18t_structure_tests {
+    use super::*;
+    use crate::encode::{
+        encode, evaluate, GateFamily, V10_TPLUS1_N20_K2_I0_3_SETUP_COUNTER,
+        V10_TPLUS1_PUBLIC_GATE_SEED,
+    };
+    use crate::gates::Gate;
+    use rand::{rngs::StdRng, RngCore, SeedableRng};
+
+    fn encode_generic(coeffs: &[F128], family: &GateFamily) -> Vec<F128> {
+        assert_eq!(coeffs.len(), 1usize << family.n);
+        let copies = 1usize << family.k;
+        let total = coeffs.len() * copies;
+        let mut src = vec![F128::ZERO; total];
+        for (i, &c) in coeffs.iter().enumerate() {
+            src[i * copies..(i + 1) * copies].fill(c);
+        }
+        let mut dst = vec![F128::ZERO; total];
+
+        for (level_idx, level) in family.levels.iter().enumerate() {
+            let parents = 1usize << (family.k + level_idx);
+            let pair_span = 2 * parents;
+            for out_pair in 0..(total / 2) {
+                let block_pair = out_pair / parents;
+                let p = out_pair % parents;
+                let base = block_pair * pair_span;
+                let u = src[base + p];
+                let v = src[base + parents + p];
+                let g = level.gates[p];
+                dst[2 * out_pair] = u + g.t0 * v;
+                dst[2 * out_pair + 1] = u + g.t1 * v;
+            }
+            std::mem::swap(&mut src, &mut dst);
+        }
+        src
+    }
+
+    #[inline]
+    fn fold_first_generic(g: Gate, w0: F128, w1: F128, z: F256) -> F256 {
+        let lambda = (z + F256::from_base(g.t0)).mul_base(g.inv_dt);
+        F256::from_base(w0) + lambda.mul_base(w1 + w0)
+    }
+
+    #[inline]
+    fn fold_ext_generic(g: Gate, w0: F256, w1: F256, z: F256) -> F256 {
+        let lambda = (z + F256::from_base(g.t0)).mul_base(g.inv_dt);
+        w0 + lambda * (w1 + w0)
+    }
+
+    fn fold_first_level_generic(word: &[F128], gates: &[Gate], z: F256) -> Vec<F256> {
+        word.chunks_exact(2)
+            .zip(gates.iter().copied())
+            .map(|(w, g)| fold_first_generic(g, w[0], w[1], z))
+            .collect()
+    }
+
+    fn fold_ext_level_generic(word: &[F256], gates: &[Gate], z: F256) -> Vec<F256> {
+        word.chunks_exact(2)
+            .zip(gates.iter().copied())
+            .map(|(w, g)| fold_ext_generic(g, w[0], w[1], z))
+            .collect()
+    }
+
+    fn diagnostic_bytes(p: &SparseProofV09) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.push(p.proof_format_version);
+        out.extend_from_slice(&(p.header.len() as u64).to_le_bytes());
+        out.extend_from_slice(&p.header);
+
+        out.extend_from_slice(&(p.body.folded_roots.len() as u64).to_le_bytes());
+        for r in &p.body.folded_roots {
+            out.extend_from_slice(r);
+        }
+        out.extend_from_slice(&p.body.eval.to_le_bytes());
+        match p.body.grind_nonce {
+            Some(x) => {
+                out.push(1);
+                out.extend_from_slice(&x.to_le_bytes());
+            }
+            None => out.push(0),
+        }
+
+        out.extend_from_slice(&(p.body.opening0.values.len() as u64).to_le_bytes());
+        for pair in &p.body.opening0.values {
+            out.extend_from_slice(&pair[0].to_le_bytes());
+            out.extend_from_slice(&pair[1].to_le_bytes());
+        }
+        out.extend_from_slice(&(p.body.opening0.auth.len() as u64).to_le_bytes());
+        for h in &p.body.opening0.auth {
+            out.extend_from_slice(h);
+        }
+
+        out.extend_from_slice(&(p.body.folded_openings.len() as u64).to_le_bytes());
+        for op in &p.body.folded_openings {
+            out.extend_from_slice(&(op.values.len() as u64).to_le_bytes());
+            for v in &op.values {
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            out.extend_from_slice(&(op.auth.len() as u64).to_le_bytes());
+            for h in &op.auth {
+                out.extend_from_slice(h);
+            }
+        }
+        out
+    }
+
+    fn prove_generic(
+        coeffs: &[F128],
+        family: &GateFamily,
+        params: &crate::transcript_v09::ParamsV09,
+    ) -> (Hash, SparseProofV09, Vec<Vec<F256>>) {
+        let word0 = encode_generic(coeffs, family);
+        let tree0 = MerkleTreeV05::<F128>::from_pairs(&word0, params.hash_kind);
+        let commitment = tree0.root();
+
+        let header = params.header().unwrap();
+        let boundaries = committed_boundaries(params.n, params.commit_every);
+        let mut committed_words = Vec::<Vec<F256>>::with_capacity(boundaries.len());
+        let mut committed_trees = Vec::<MerkleTreeV05<F256>>::with_capacity(boundaries.len());
+        let mut roots = Vec::with_capacity(boundaries.len());
+        let mut state = crate::transcript_v09::initial_state_v09(&header, &commitment);
+        let mut current_ext: Option<Vec<F256>> = None;
+        let mut final_word = Vec::new();
+        let mut every_layer = Vec::with_capacity(family.n);
+
+        for (r, level) in family.levels.iter().rev().enumerate() {
+            let z = crate::transcript_v09::challenge_field_v09(
+                &state,
+                b"fold",
+                r as u64,
+                params.hash_kind,
+            );
+            let next = if r == 0 {
+                fold_first_level_generic(&word0, &level.gates, z)
+            } else {
+                fold_ext_level_generic(current_ext.as_ref().unwrap(), &level.gates, z)
+            };
+            every_layer.push(next.clone());
+
+            let b = r + 1;
+            if b < family.n && b % params.commit_every == 0 {
+                let tree = MerkleTreeV05::<F256>::from_pairs(&next, params.hash_kind);
+                let root = tree.root();
+                roots.push(root);
+                state.extend_from_slice(&root);
+                committed_words.push(next.clone());
+                committed_trees.push(tree);
+            }
+            if b == family.n {
+                final_word = next.clone();
+            }
+            current_ext = Some(next);
+        }
+
+        let eval = final_word[0];
+        let mut final_state = state.clone();
+        crate::transcript_v09::append_single_last_v09(&mut final_state, eval);
+        let gs = crate::transcript_v09::grind_seed_v09(&final_state, params.hash_kind);
+        let nonce = if params.g == 0 {
+            None
+        } else {
+            Some(crate::transcript_v09::find_grind_nonce_v09(
+                &gs,
+                params.g,
+                params.hash_kind,
+            ))
+        };
+
+        let leaves0 = 1usize << (family.n + family.k - 1);
+        let q0s = crate::transcript_v09::derive_queries_v09(
+            &final_state,
+            nonce,
+            params.s,
+            leaves0,
+            params.hash_kind,
+        );
+        let d0 = params.commit_every.min(family.n);
+        let ix0 = source_pair_indices(&q0s, 0, d0);
+        let opening0 = tree0.open_pairs(&word0, &ix0);
+        let mut fops = Vec::with_capacity(boundaries.len());
+
+        for (j, &b) in boundaries.iter().enumerate() {
+            let d = params.commit_every.min(family.n - b);
+            let ix = source_pair_indices(&q0s, b, d);
+            let known_positions = target_positions(&q0s, b);
+            fops.push(committed_trees[j].open_pairs_compact(
+                &committed_words[j],
+                &ix,
+                &known_positions,
+            ));
+        }
+
+        let body = SparseProofV06 {
+            folded_roots: roots,
+            eval,
+            grind_nonce: nonce,
+            opening0,
+            folded_openings: fops,
+        };
+        let proof = SparseProofV09 {
+            proof_format_version: crate::transcript_v09::PROOF_FORMAT_VERSION_V09,
+            header: header.serialize(),
+            body,
+        };
+        (commitment, proof, every_layer)
+    }
+
+    fn params(n: usize, g: u32) -> crate::transcript_v09::ParamsV09 {
+        let k = 2usize;
+        let i0 = 3usize;
+        let sec = crate::security::soundness_bits_from(n, k, 128.0, 256.0, g as f64, 64.0, i0);
+        crate::transcript_v09::ParamsV09 {
+            n,
+            k,
+            i0,
+            s: sec.s,
+            g,
+            t: 1,
+            commit_every: 3,
+            gate_seed: V10_TPLUS1_PUBLIC_GATE_SEED,
+            setup_counter: V10_TPLUS1_N20_K2_I0_3_SETUP_COUNTER,
+            hash_kind: HashKind::Blake3,
+            target_bits: 192,
+        }
+    }
+
+    #[test]
+    fn brief18t_fast_path_equivalence_bit_for_bit() {
+        let n = 12usize;
+        let family = GateFamily::from_seed_and_counter(
+            n,
+            2,
+            V10_TPLUS1_PUBLIC_GATE_SEED,
+            V10_TPLUS1_N20_K2_I0_3_SETUP_COUNTER,
+        );
+        let p = params(n, 0);
+        p.validate().unwrap();
+        let coeffs = (0..(1usize << n))
+            .map(|i| F128((i as u128).wrapping_mul(0x9e3779b97f4a7c15) ^ 0x18))
+            .collect::<Vec<_>>();
+
+        let opt = prove_and_verify_sparse_v09(&coeffs, &family, &p).unwrap();
+        let (gc, gp, glayers) = prove_generic(&coeffs, &family, &p);
+        assert!(opt.verified);
+        assert_eq!(opt.commitment, gc);
+
+        // Independently compare every folded layer using the exact same transcript state.
+        let word_opt = encode(&coeffs, &family);
+        let word_gen = encode_generic(&coeffs, &family);
+        assert_eq!(word_opt, word_gen, "encoded word differs");
+
+        let header = p.header().unwrap();
+        let mut state = crate::transcript_v09::initial_state_v09(&header, &opt.commitment);
+        let mut cur: Option<Vec<F256>> = None;
+        for (r, level) in family.levels.iter().rev().enumerate() {
+            let z =
+                crate::transcript_v09::challenge_field_v09(&state, b"fold", r as u64, p.hash_kind);
+            let next = if r == 0 {
+                fold_first_level(&word_opt, &level.gates, z)
+            } else {
+                fold_ext_level(cur.as_ref().unwrap(), &level.gates, z)
+            };
+            assert_eq!(next, glayers[r], "folded layer {r} differs");
+            let b = r + 1;
+            if b < family.n && b % p.commit_every == 0 {
+                let tree = MerkleTreeV05::<F256>::from_pairs(&next, p.hash_kind);
+                state.extend_from_slice(&tree.root());
+            }
+            cur = Some(next);
+        }
+
+        assert_eq!(diagnostic_bytes(&opt.proof), diagnostic_bytes(&gp));
+        println!(
+            "FAST_PATH_EQUIVALENCE=PASS bytes={}",
+            diagnostic_bytes(&gp).len()
+        );
+    }
+
+    #[test]
+    fn brief18t_evaluation_identity_1000_positions() {
+        let n = 10usize;
+        let k = 2usize;
+        let family = GateFamily::from_seed_and_counter(
+            n,
+            k,
+            V10_TPLUS1_PUBLIC_GATE_SEED,
+            V10_TPLUS1_N20_K2_I0_3_SETUP_COUNTER,
+        );
+        let mut rng = StdRng::seed_from_u64(0x18_7000);
+        let coeffs = (0..(1usize << n))
+            .map(|_| F128::random(&mut rng))
+            .collect::<Vec<_>>();
+        let word = encode(&coeffs, &family);
+
+        for _ in 0..1000 {
+            let pos = (rng.next_u64() as usize) % word.len();
+            let beta = pos >> n;
+            let path = pos & ((1usize << n) - 1);
+            let mut parent = beta;
+            let mut ys = Vec::with_capacity(n);
+            for level in 0..n {
+                let bit = (path >> (n - 1 - level)) & 1;
+                let g = family.levels[level].gates[parent];
+                ys.push(if bit == 0 { g.t0 } else { g.t1 });
+                parent = (parent << 1) | bit;
+            }
+            let z = ys.iter().rev().copied().collect::<Vec<_>>();
+            assert_eq!(word[pos], evaluate(&coeffs, &z), "position={pos}");
+        }
+        println!("EVALUATION_IDENTITY_1000=PASS");
+    }
+
+    #[test]
+    fn brief18t_prededup_counts_n20() {
+        let n = 20usize;
+        let k = 2usize;
+        let m = 3usize;
+        let s = 407usize;
+        let leaves0 = 1usize << (n + k - 1);
+        let mut raw_field_elements = 0usize;
+        let mut raw_auth_digests = 0usize;
+
+        // Base opening.
+        let d0 = m.min(n);
+        let width0 = 1usize << (d0 - 1);
+        raw_field_elements += s * 2 * width0;
+        raw_auth_digests +=
+            s * ((leaves0.trailing_zeros() as usize) - (width0.trailing_zeros() as usize));
+
+        for b in committed_boundaries(n, m) {
+            let d = m.min(n - b);
+            let width = 1usize << (d - 1);
+            let leaves = leaves0 >> b;
+            raw_field_elements += s * 2 * width;
+            raw_auth_digests +=
+                s * ((leaves.trailing_zeros() as usize) - (width.trailing_zeros() as usize));
+        }
+
+        assert_eq!(raw_field_elements, 21164);
+        assert_eq!(raw_auth_digests, 28897);
+        println!("PREDEDUP_FIELD_ELEMENTS={raw_field_elements}");
+        println!("PREDEDUP_MERKLE_DIGESTS={raw_auth_digests}");
+        println!("PREDEDUP_COUNTS=PASS");
     }
 }

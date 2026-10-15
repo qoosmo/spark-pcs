@@ -1,10 +1,12 @@
 #![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+#[cfg(not(feature = "tplus1"))]
+use crate::field::batch_inverse;
 use crate::{
     encode::{derive_gate_level_key, derive_raw_gate_from_level_key, encode, GateFamily},
     extfield::F256,
-    field::{batch_inverse, F128},
+    field::F128,
     gates::Gate,
     merkle_v05::{Hash, HashKind},
 };
@@ -645,6 +647,9 @@ fn fold_first_level(word: &[F128], gates: &[Gate], z: F256) -> Vec<F256> {
     word.par_chunks_exact(2)
         .zip(gates.par_iter().copied())
         .map(|(w, g)| {
+            #[cfg(feature = "tplus1")]
+            let l = z + F256::from_base(g.t0);
+            #[cfg(not(feature = "tplus1"))]
             let l = (z + F256::from_base(g.t0)).mul_base(g.inv_dt);
             fold_first_lambda(l, w[0], w[1])
         })
@@ -654,6 +659,9 @@ fn fold_ext_level(word: &[F256], gates: &[Gate], z: F256) -> Vec<F256> {
     word.par_chunks_exact(2)
         .zip(gates.par_iter().copied())
         .map(|(w, g)| {
+            #[cfg(feature = "tplus1")]
+            let l = z + F256::from_base(g.t0);
+            #[cfg(not(feature = "tplus1"))]
             let l = (z + F256::from_base(g.t0)).mul_base(g.inv_dt);
             fold_ext_lambda(l, w[0], w[1])
         })
@@ -728,6 +736,9 @@ fn derive_sparse_gates(
     let prf = t0.elapsed();
     let den = raw.iter().map(|(a, b)| *a + *b).collect::<Vec<_>>();
     let ti = Instant::now();
+    #[cfg(feature = "tplus1")]
+    let inv = vec![F128::ONE; den.len()];
+    #[cfg(not(feature = "tplus1"))]
     let inv = batch_inverse(&den);
     let inv_t = ti.elapsed();
     let tb = Instant::now();
@@ -743,7 +754,16 @@ fn derive_lambdas(n: usize, keys: &[(usize, usize)], gates: &[Gate], zs: &[F256]
         .zip(gates.iter().copied())
         .map(|(&(level, _), g)| {
             let round = n - 1 - level;
-            (zs[round] + F256::from_base(g.t0)).mul_base(g.inv_dt)
+            {
+                #[cfg(feature = "tplus1")]
+                {
+                    zs[round] + F256::from_base(g.t0)
+                }
+                #[cfg(not(feature = "tplus1"))]
+                {
+                    (zs[round] + F256::from_base(g.t0)).mul_base(g.inv_dt)
+                }
+            }
         })
         .collect()
 }

@@ -65,6 +65,8 @@ fn digest(kind: HashKind, parts: &[&[u8]]) -> Hash {
 }
 #[inline]
 fn h_leaf<T: MerkleElem>(kind: HashKind, a: T, b: T) -> Hash {
+    #[cfg(feature = "brief18t_instrument")]
+    crate::instrument::inc_hash();
     let mut ab = [0u8; 32];
     let mut bb = [0u8; 32];
     a.encode(&mut ab);
@@ -91,8 +93,164 @@ fn h_leaf<T: MerkleElem>(kind: HashKind, a: T, b: T) -> Hash {
         ),
     }
 }
+/// Block leaf: one hash over a whole aligned block of `2^g` pairs (`g >= 1`).
+/// Domain-separated from pair leaves, so the two layouts can never collide.
+#[inline]
+fn h_block<T: MerkleElem>(kind: HashKind, blk: &[T]) -> Hash {
+    #[cfg(feature = "brief18t_instrument")]
+    crate::instrument::inc_hash();
+    const DOMAIN: &[u8] = b"SPARK-BINARY-BLOCK-v1";
+    let mut tmp = [0u8; 32];
+    match kind {
+        HashKind::Blake3 => {
+            let mut h = blake3::Hasher::new();
+            h.update(DOMAIN);
+            for &x in blk {
+                x.encode(&mut tmp);
+                h.update(&tmp[..T::SIZE]);
+            }
+            *h.finalize().as_bytes()
+        }
+        HashKind::Sha256 => {
+            let mut h = Sha256::new();
+            h.update(DOMAIN);
+            for &x in blk {
+                x.encode(&mut tmp);
+                h.update(&tmp[..T::SIZE]);
+            }
+            h.finalize().into()
+        }
+    }
+}
+
+/// Hash of the leaf covering a group of pairs.
+#[inline]
+fn h_leaf_group<T: MerkleElem>(kind: HashKind, pairs: &[[T; 2]], lay: Layout) -> Hash {
+    let flat: Vec<T> = pairs.iter().flat_map(|p| [p[0], p[1]]).collect();
+    leaf_hash_flat(kind, lay, &flat)
+}
+
+/// Check that sorted pair `indices` consist of complete aligned groups of `2^g` pairs,
+/// and return the (sorted, deduplicated) group indices.
+fn group_indices(indices: &[usize], g: u32) -> Option<Vec<usize>> {
+    let w = 1usize << g;
+    if indices.len() % w != 0 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(indices.len() / w);
+    for chunk in indices.chunks(w) {
+        let base = chunk[0];
+        if base % w != 0 {
+            return None;
+        }
+        for (j, &i) in chunk.iter().enumerate() {
+            if i != base + j {
+                return None;
+            }
+        }
+        out.push(base >> g);
+    }
+    Some(out)
+}
+
+/// Merkle layout: leaf grouping and hashing mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Layout {
+    /// log2 of the number of pairs per leaf.
+    pub group_log: u32,
+    /// Keyed hashing (v0.10): domain separation by the BLAKE3 key instead of a byte prefix,
+    /// so an internal node is one 64-byte compression.
+    pub keyed: bool,
+}
+impl Layout {
+    /// One pair per leaf, prefixed hashing (v0.5 .. v0.10-rc1).
+    pub const PAIR: Layout = Layout { group_log: 0, keyed: false };
+    /// v0.10: one leaf per query group of `2^g` pairs, keyed hashing.
+    pub const fn v10(group_log: u32) -> Layout {
+        Layout { group_log, keyed: true }
+    }
+}
+
+const KEY_LEAF_V10_CONTEXT: &str = "SPARK-BINARY v0.10 Merkle leaf";
+const KEY_NODE_V10_CONTEXT: &str = "SPARK-BINARY v0.10 Merkle node";
+
+fn key_leaf_v10() -> &'static [u8; 32] {
+    static K: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
+    K.get_or_init(|| blake3::derive_key(KEY_LEAF_V10_CONTEXT, b""))
+}
+fn key_node_v10() -> &'static [u8; 32] {
+    static K: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
+    K.get_or_init(|| blake3::derive_key(KEY_NODE_V10_CONTEXT, b""))
+}
+
+/// Keyed group leaf: BLAKE3 keyed by the leaf key over the concatenated entries.
+#[inline]
+fn h_block_keyed<T: MerkleElem>(kind: HashKind, blk: &[T]) -> Hash {
+    #[cfg(feature = "brief18t_instrument")]
+    crate::instrument::inc_hash();
+    let mut tmp = [0u8; 32];
+    match kind {
+        HashKind::Blake3 => {
+            let mut h = blake3::Hasher::new_keyed(key_leaf_v10());
+            for &x in blk {
+                x.encode(&mut tmp);
+                h.update(&tmp[..T::SIZE]);
+            }
+            *h.finalize().as_bytes()
+        }
+        HashKind::Sha256 => {
+            let mut h = Sha256::new();
+            h.update(b"SPARK-BINARY-LEAF-v0.10");
+            for &x in blk {
+                x.encode(&mut tmp);
+                h.update(&tmp[..T::SIZE]);
+            }
+            h.finalize().into()
+        }
+    }
+}
+
+/// Keyed internal node: one compression of the 64-byte input `l || r`.
+#[inline]
+fn h_node_keyed(kind: HashKind, l: &Hash, r: &Hash) -> Hash {
+    #[cfg(feature = "brief18t_instrument")]
+    crate::instrument::inc_hash();
+    match kind {
+        HashKind::Blake3 => {
+            let mut buf = [0u8; 64];
+            buf[..32].copy_from_slice(l);
+            buf[32..].copy_from_slice(r);
+            *blake3::keyed_hash(key_node_v10(), &buf).as_bytes()
+        }
+        HashKind::Sha256 => digest(kind, &[b"SPARK-BINARY-NODE-v0.10", l, r]),
+    }
+}
+
+#[inline]
+fn node_hash(kind: HashKind, keyed: bool, l: &Hash, r: &Hash) -> Hash {
+    if keyed {
+        h_node_keyed(kind, l, r)
+    } else {
+        h_node(kind, l, r)
+    }
+}
+
+/// Leaf hash of one group given its flat entries (`2^{g+1}` elements).
+#[inline]
+fn leaf_hash_flat<T: MerkleElem>(kind: HashKind, lay: Layout, flat: &[T]) -> Hash {
+    if lay.keyed {
+        h_block_keyed(kind, flat)
+    } else if lay.group_log == 0 {
+        h_leaf(kind, flat[0], flat[1])
+    } else {
+        h_block(kind, flat)
+    }
+}
+
 #[inline]
 fn h_node(kind: HashKind, l: &Hash, r: &Hash) -> Hash {
+    #[cfg(feature = "brief18t_instrument")]
+    crate::instrument::inc_hash();
     match kind {
         HashKind::Blake3 => {
             // Same transcript bytes, one BLAKE3 call instead of 3 updates.
@@ -121,6 +279,7 @@ fn verify_frontier_sorted(
     leaf_hashes: Vec<Hash>,
     auth: &[Hash],
     #[allow(dead_code)] kind: HashKind,
+    keyed: bool,
 ) -> bool {
     if indices.len() != leaf_hashes.len() {
         return false;
@@ -155,7 +314,7 @@ fn verify_frontier_sorted(
                 }
                 i += 1;
             }
-            next.push((idx >> 1, h_node(kind, &l, &r)));
+            next.push((idx >> 1, node_hash(kind, keyed, &l, &r)));
         }
         std::mem::swap(&mut cur, &mut next);
     }
@@ -192,14 +351,24 @@ pub struct MerkleTreeV05<T: MerkleElem> {
     levels: Vec<Vec<Hash>>,
     #[allow(dead_code)]
     kind: HashKind,
+    layout: Layout,
     _m: std::marker::PhantomData<T>,
 }
 impl<T: MerkleElem> MerkleTreeV05<T> {
     pub fn from_pairs(word: &[T], kind: HashKind) -> Self {
-        assert!(word.len().is_power_of_two() && word.len() >= 2);
+        Self::with_layout(word, kind, Layout::PAIR)
+    }
+    /// Unkeyed group leaves (the Brief 19 experiment layout).
+    pub fn from_pairs_grouped(word: &[T], kind: HashKind, group_log: u32) -> Self {
+        Self::with_layout(word, kind, Layout { group_log, keyed: false })
+    }
+    /// Build the tree with an explicit layout.
+    pub fn with_layout(word: &[T], kind: HashKind, layout: Layout) -> Self {
+        let w = 2usize << layout.group_log;
+        assert!(word.len().is_power_of_two() && word.len() >= w);
         let leaves = word
-            .par_chunks_exact(2)
-            .map(|w| h_leaf(kind, w[0], w[1]))
+            .par_chunks_exact(w)
+            .map(|blk| leaf_hash_flat(kind, layout, blk))
             .collect::<Vec<_>>();
         let mut levels = vec![leaves];
         while levels.last().unwrap().len() > 1 {
@@ -207,13 +376,14 @@ impl<T: MerkleElem> MerkleTreeV05<T> {
                 .last()
                 .unwrap()
                 .par_chunks_exact(2)
-                .map(|p| h_node(kind, &p[0], &p[1]))
+                .map(|p| node_hash(kind, layout.keyed, &p[0], &p[1]))
                 .collect();
             levels.push(next);
         }
         Self {
             levels,
             kind,
+            layout,
             _m: std::marker::PhantomData,
         }
     }
@@ -221,14 +391,15 @@ impl<T: MerkleElem> MerkleTreeV05<T> {
         self.levels.last().unwrap()[0]
     }
     pub fn open_pairs(&self, word: &[T], indices: &[usize]) -> MultiOpening<T> {
-        assert_eq!(self.levels[0].len() * 2, word.len());
+        assert_eq!((self.levels[0].len() * 2) << self.layout.group_log, word.len());
         assert!(!indices.is_empty());
         let values = indices
             .iter()
             .map(|&i| [word[2 * i], word[2 * i + 1]])
             .collect();
         let mut auth = Vec::new();
-        let mut cur = indices.to_vec();
+        let mut cur = group_indices(indices, self.layout.group_log)
+            .expect("queried pairs must form complete aligned leaf groups");
         for level in &self.levels[..self.levels.len() - 1] {
             for &idx in &cur {
                 let sib = idx ^ 1;
@@ -249,7 +420,7 @@ impl<T: MerkleElem> MerkleTreeV05<T> {
         indices: &[usize],
         known_positions: &[usize],
     ) -> CompactOpening<T> {
-        assert_eq!(self.levels[0].len() * 2, word.len());
+        assert_eq!((self.levels[0].len() * 2) << self.layout.group_log, word.len());
         assert!(!indices.is_empty());
         debug_assert!(known_positions.windows(2).all(|w| w[0] < w[1]));
 
@@ -263,7 +434,8 @@ impl<T: MerkleElem> MerkleTreeV05<T> {
         }
 
         let mut auth = Vec::new();
-        let mut cur = indices.to_vec();
+        let mut cur = group_indices(indices, self.layout.group_log)
+            .expect("queried pairs must form complete aligned leaf groups");
         for level in &self.levels[..self.levels.len() - 1] {
             for &idx in &cur {
                 let sib = idx ^ 1;
@@ -288,7 +460,34 @@ impl<T: MerkleElem> MerkleTreeV05<T> {
         op: &CompactOpening<T>,
         kind: HashKind,
     ) -> Option<Vec<[T; 2]>> {
-        if !leaf_count.is_power_of_two() || indices.is_empty() {
+        Self::verify_pairs_compact_layout(root, leaf_count, indices, known, op, kind, Layout::PAIR)
+    }
+
+    pub fn verify_pairs_compact_grouped(
+        root: &Hash,
+        leaf_count: usize,
+        indices: &[usize],
+        known: &HashMap<usize, T>,
+        op: &CompactOpening<T>,
+        kind: HashKind,
+        g: u32,
+    ) -> Option<Vec<[T; 2]>> {
+        let lay = Layout { group_log: g, keyed: false };
+        Self::verify_pairs_compact_layout(root, leaf_count, indices, known, op, kind, lay)
+    }
+
+    /// `leaf_count` is the number of *pairs*; the tree has `leaf_count >> g` leaves.
+    pub fn verify_pairs_compact_layout(
+        root: &Hash,
+        leaf_count: usize,
+        indices: &[usize],
+        known: &HashMap<usize, T>,
+        op: &CompactOpening<T>,
+        kind: HashKind,
+        lay: Layout,
+    ) -> Option<Vec<[T; 2]>> {
+        let g = lay.group_log;
+        if !leaf_count.is_power_of_two() || indices.is_empty() || (leaf_count >> g) == 0 {
             return None;
         }
         if *indices.last()? >= leaf_count || !indices.windows(2).all(|w| w[0] < w[1]) {
@@ -297,7 +496,7 @@ impl<T: MerkleElem> MerkleTreeV05<T> {
 
         let mut vp = 0usize;
         let mut pairs = Vec::with_capacity(indices.len());
-        let mut leaf_hashes = Vec::with_capacity(indices.len());
+        let mut leaf_hashes: Vec<Hash> = Vec::with_capacity(indices.len());
         for &i in indices {
             let mut next_value = |pos: usize| -> Option<T> {
                 if let Some(v) = known.get(&pos) {
@@ -313,13 +512,15 @@ impl<T: MerkleElem> MerkleTreeV05<T> {
             let a = next_value(2 * i)?;
             let b = next_value(2 * i + 1)?;
             pairs.push([a, b]);
-            leaf_hashes.push(h_leaf(kind, a, b));
         }
         if vp != op.values.len() {
             return None;
         }
+        let groups = group_indices(indices, g)?;
+        let w = 1usize << g;
+        leaf_hashes.extend(pairs.chunks(w).map(|c| h_leaf_group(kind, c, lay)));
 
-        if verify_frontier_sorted(root, leaf_count, indices, leaf_hashes, &op.auth, kind) {
+        if verify_frontier_sorted(root, leaf_count >> g, &groups, leaf_hashes, &op.auth, kind, lay.keyed) {
             Some(pairs)
         } else {
             None
@@ -333,18 +534,50 @@ impl<T: MerkleElem> MerkleTreeV05<T> {
         op: &MultiOpening<T>,
         kind: HashKind,
     ) -> bool {
+        Self::verify_pairs_layout(root, leaf_count, indices, op, kind, Layout::PAIR)
+    }
+
+    pub fn verify_pairs_grouped(
+        root: &Hash,
+        leaf_count: usize,
+        indices: &[usize],
+        op: &MultiOpening<T>,
+        kind: HashKind,
+        g: u32,
+    ) -> bool {
+        Self::verify_pairs_layout(root, leaf_count, indices, op, kind, Layout { group_log: g, keyed: false })
+    }
+
+    /// `leaf_count` is the number of *pairs*; the tree has `leaf_count >> g` leaves.
+    pub fn verify_pairs_layout(
+        root: &Hash,
+        leaf_count: usize,
+        indices: &[usize],
+        op: &MultiOpening<T>,
+        kind: HashKind,
+        lay: Layout,
+    ) -> bool {
+        let g = lay.group_log;
         if !leaf_count.is_power_of_two() || indices.is_empty() || indices.len() != op.values.len() {
+            return false;
+        }
+        if (leaf_count >> g) == 0 {
             return false;
         }
         if *indices.last().unwrap() >= leaf_count || !indices.windows(2).all(|w| w[0] < w[1]) {
             return false;
         }
+        let groups = match group_indices(indices, g) {
+            Some(x) => x,
+            None => return false,
+        };
+        let w = 1usize << g;
         let leaf_hashes = op
             .values
-            .iter()
-            .map(|v| h_leaf(kind, v[0], v[1]))
+            .chunks(w)
+            .map(|c| h_leaf_group(kind, c, lay))
             .collect::<Vec<_>>();
-        verify_frontier_sorted(root, leaf_count, indices, leaf_hashes, &op.auth, kind)
+        verify_frontier_sorted(root, leaf_count >> g, &groups, leaf_hashes, &op.auth, kind, lay.keyed)
     }
 }
 
@@ -401,5 +634,93 @@ mod compact_auth_tests {
             HashKind::Blake3,
         )
         .is_none());
+    }
+    fn sample_word(n: usize) -> Vec<F256> {
+        (0..n)
+            .map(|i| F256::from_base(F128((i as u128).wrapping_mul(0x9e3779b97f4a7c15) ^ 7)))
+            .collect()
+    }
+
+    #[test]
+    fn grouped_zero_is_bit_identical_to_pair_leaves() {
+        let w = sample_word(64);
+        let a = MerkleTreeV05::<F256>::from_pairs(&w, HashKind::Blake3);
+        let b = MerkleTreeV05::<F256>::from_pairs_grouped(&w, HashKind::Blake3, 0);
+        assert_eq!(a.root(), b.root());
+    }
+
+    #[test]
+    fn block_leaves_round_trip_and_tamper() {
+        for g in 1u32..=3 {
+            let w = sample_word(128);
+            let pairs = w.len() / 2;
+            let tree = MerkleTreeV05::<F256>::from_pairs_grouped(&w, HashKind::Blake3, g);
+            let pair_root = MerkleTreeV05::<F256>::from_pairs(&w, HashKind::Blake3).root();
+            assert_ne!(tree.root(), pair_root, "layouts must be domain-separated");
+            let width = 1usize << g;
+            // two complete groups
+            let mut ix: Vec<usize> = (width..2 * width).chain(5 * width..6 * width).collect();
+            ix.sort_unstable();
+            let op = tree.open_pairs(&w, &ix);
+            assert!(MerkleTreeV05::<F256>::verify_pairs_grouped(
+                &tree.root(), pairs, &ix, &op, HashKind::Blake3, g
+            ));
+            // tamper a value
+            let mut bad = op.clone();
+            bad.values[1][0] = F256::from_base(F128(999));
+            assert!(!MerkleTreeV05::<F256>::verify_pairs_grouped(
+                &tree.root(), pairs, &ix, &bad, HashKind::Blake3, g
+            ));
+            // tamper an auth digest
+            let mut bad = op.clone();
+            bad.auth[0][0] ^= 1;
+            assert!(!MerkleTreeV05::<F256>::verify_pairs_grouped(
+                &tree.root(), pairs, &ix, &bad, HashKind::Blake3, g
+            ));
+            // an incomplete group is rejected
+            let partial = &ix[1..];
+            let op2 = MultiOpening { values: op.values[1..].to_vec(), auth: op.auth.clone() };
+            assert!(!MerkleTreeV05::<F256>::verify_pairs_grouped(
+                &tree.root(), pairs, partial, &op2, HashKind::Blake3, g
+            ));
+            // compact opening with known positions
+            let known_pos: Vec<usize> = vec![2 * width, 2 * (5 * width) + 1];
+            let cop = tree.open_pairs_compact(&w, &ix, &known_pos);
+            let mut known = HashMap::new();
+            for &pos in &known_pos {
+                known.insert(pos, w[pos]);
+            }
+            let got = MerkleTreeV05::<F256>::verify_pairs_compact_grouped(
+                &tree.root(), pairs, &ix, &known, &cop, HashKind::Blake3, g,
+            )
+            .expect("compact grouped opening verifies");
+            assert_eq!(got.len(), ix.len());
+            known.insert(known_pos[0], F256::from_base(F128(12345)));
+            assert!(MerkleTreeV05::<F256>::verify_pairs_compact_grouped(
+                &tree.root(), pairs, &ix, &known, &cop, HashKind::Blake3, g,
+            )
+            .is_none());
+        }
+    }
+    #[test]
+    fn keyed_v10_layout_round_trip_and_domain_separation() {
+        for g in 0u32..=3 {
+            let w = sample_word(128);
+            let pairs = w.len() / 2;
+            let lay = Layout::v10(g);
+            let tree = MerkleTreeV05::<F256>::with_layout(&w, HashKind::Blake3, lay);
+            let unkeyed = MerkleTreeV05::<F256>::from_pairs_grouped(&w, HashKind::Blake3, g);
+            assert_ne!(tree.root(), unkeyed.root());
+            let width = 1usize << g;
+            let ix: Vec<usize> = (2 * width..3 * width).collect();
+            let op = tree.open_pairs(&w, &ix);
+            assert!(MerkleTreeV05::<F256>::verify_pairs_layout(&tree.root(), pairs, &ix, &op, HashKind::Blake3, lay));
+            assert!(!MerkleTreeV05::<F256>::verify_pairs_layout(
+                &tree.root(), pairs, &ix, &op, HashKind::Blake3, Layout { group_log: g, keyed: false }
+            ));
+            let mut bad = op.clone();
+            bad.values[0][1] = F256::from_base(F128(4242));
+            assert!(!MerkleTreeV05::<F256>::verify_pairs_layout(&tree.root(), pairs, &ix, &bad, HashKind::Blake3, lay));
+        }
     }
 }

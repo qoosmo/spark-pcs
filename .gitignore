@@ -9,3 +9,13 @@ Cargo.lock
 pcs-binary/v09-smoke-*/
 pcs-binary/benchmark-results/
 *.profraw
+
+# Local Brief18 benchmark/profile outputs
+brief18q-interleaved-*/
+brief18t-cross-*/
+brief18t-postcleanup-*/
+brief18t-profile-*/
+brief18t-counts-*.txt
+brief18v-v010.diff
+brief18v-v010-smoke.txt
+paper/spark-v0.10-rc1.pdf

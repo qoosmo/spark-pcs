@@ -51,6 +51,33 @@ cargo run --release -p gatecode -- ident                  # algebraic identity c
 Experiment modes: `ident`, `bound`, `bound2`, `sweep`, `isd`, `sanity2`, `p1`, `p2`, `mdsx`, `coll`, `checked`, `vand`.
 
 
+## v0.10 release
+
+v0.10 combines two independent prover optimizations; soundness, `s=407` and the fields are unchanged.
+
+- **Specialized gates** `(t,t+1)`: `a = u + t v`, `b = a + v`, fold coefficient `z + t`. Encoding cost halves.
+- **Keyed group leaves**: one Merkle leaf per query group, BLAKE3 keyed mode; an internal node is one compression.
+
+Profiles (`n=20, k=2, i0=3, g=16`, 192-bit target):
+
+| profile | `commit_every` | proof (pinned) | use |
+|---|---|---|---|
+| `ParamsV10::compact()` | 3 | 591,562 B | smallest proof |
+| `ParamsV10::fast()` | 4 | 647,522 B | fastest prover |
+
+Four-way comparison, Apple M1, one thread, `n=20` (median of 20 interleaved runs):
+
+| gates, leaves | prover `m=3` | prover `m=4` |
+|---|---|---|
+| random, pair (v0.9.1) | 1669 ms | 1567 ms |
+| `(t,t+1)`, pair (rc1) | 1367 ms | 1305 ms |
+| random, group | 1137 ms | 1001 ms |
+| `(t,t+1)`, group | **882 ms** | **738 ms** |
+
+Eight threads: `510 -> 323 ms` (`m=3`), `462 -> 176 ms` (`m=4`). The group rows used tagged leaves; keyed hashing (the v0.10 default) cuts commit time by another 22-30%.
+
+Smoke: `cargo run --release -p spark-binary --bin v010_release_smoke`
+
 ## v0.9 release
 
 SPARK v0.9 fixes the canonical Fiat–Shamir transcript and verifier parameter binding while leaving the encoder, folding rule, gate construction, Merkle construction, and query algorithm unchanged.
@@ -80,7 +107,7 @@ Pinned result:
 
 ## Status
 
-- **Prototype.** Single-threaded and unoptimised. Parameters currently use the rank-saturation bound.
+- **Prototype.** Rayon-parallel prover, keyed group leaves (v0.10). Parameters use the rank-saturation bound.
 - **In progress.**
   - Checked setup in the prototype.
   - Parallel prover.

@@ -1,10 +1,9 @@
 #![allow(clippy::needless_range_loop)]
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::{
-    field::{batch_inverse, F128},
-    gates::Gate,
-};
+#[cfg(not(feature = "tplus1"))]
+use crate::field::batch_inverse;
+use crate::{field::F128, gates::Gate};
 use rand::RngCore;
 use rayon::prelude::*;
 
@@ -30,6 +29,9 @@ pub struct GateFamily {
 #[inline]
 pub fn derive_gate_level_key(seed: u64, setup_counter: u64, level_idx: usize) -> [u8; 32] {
     let mut h = blake3::Hasher::new();
+    #[cfg(feature = "tplus1")]
+    h.update(b"SPARK-GATE-v0.10-tplus1");
+    #[cfg(not(feature = "tplus1"))]
     h.update(b"SPARK-GATE-v0.7");
     h.update(&seed.to_le_bytes());
     h.update(&setup_counter.to_le_bytes());
@@ -45,26 +47,38 @@ pub fn derive_gate_level_key(seed: u64, setup_counter: u64, level_idx: usize) ->
 #[inline]
 pub fn derive_raw_gate_from_level_key(level_key: &[u8; 32], gate_idx: usize) -> (F128, F128) {
     let q = (gate_idx as u64).to_le_bytes();
-    let mut d = blake3::keyed_hash(level_key, &q);
-    let mut retry = 0u64;
 
-    loop {
-        let bytes = d.as_bytes();
+    #[cfg(feature = "tplus1")]
+    {
+        let d = blake3::keyed_hash(level_key, &q);
         let mut a = [0u8; 16];
-        let mut b = [0u8; 16];
-        a.copy_from_slice(&bytes[..16]);
-        b.copy_from_slice(&bytes[16..]);
-        let t0 = F128(u128::from_le_bytes(a));
-        let t1 = F128(u128::from_le_bytes(b));
-        if t0 != t1 {
-            return (t0, t1);
-        }
+        a.copy_from_slice(&d.as_bytes()[..16]);
+        let t = F128(u128::from_le_bytes(a));
+        return (t, t + F128::ONE);
+    }
 
-        retry = retry.checked_add(1).expect("gate retry counter exhausted");
-        let mut retry_input = [0u8; 16];
-        retry_input[..8].copy_from_slice(&q);
-        retry_input[8..].copy_from_slice(&retry.to_le_bytes());
-        d = blake3::keyed_hash(level_key, &retry_input);
+    #[cfg(not(feature = "tplus1"))]
+    {
+        let mut d = blake3::keyed_hash(level_key, &q);
+        let mut retry = 0u64;
+        loop {
+            let bytes = d.as_bytes();
+            let mut a = [0u8; 16];
+            let mut b = [0u8; 16];
+            a.copy_from_slice(&bytes[..16]);
+            b.copy_from_slice(&bytes[16..]);
+            let t0 = F128(u128::from_le_bytes(a));
+            let t1 = F128(u128::from_le_bytes(b));
+            if t0 != t1 {
+                return (t0, t1);
+            }
+
+            retry = retry.checked_add(1).expect("gate retry counter exhausted");
+            let mut retry_input = [0u8; 16];
+            retry_input[..8].copy_from_slice(&q);
+            retry_input[8..].copy_from_slice(&retry.to_le_bytes());
+            d = blake3::keyed_hash(level_key, &retry_input);
+        }
     }
 }
 
@@ -362,6 +376,9 @@ impl GateFamily {
                 denoms.push(t1 + t0);
             }
         }
+        #[cfg(feature = "tplus1")]
+        let invs = vec![F128::ONE; denoms.len()];
+        #[cfg(not(feature = "tplus1"))]
         let invs = batch_inverse(&denoms);
         let mut cursor = 0usize;
         let mut levels = Vec::with_capacity(n);
@@ -434,15 +451,27 @@ impl GateFamily {
         for i in 0..n {
             let parents = 1usize << (k + i);
             for _ in 0..parents {
-                let t0 = F128::random(rng);
-                let mut t1 = F128::random(rng);
-                while t1 == t0 {
-                    t1 = F128::random(rng);
-                }
+                #[cfg(feature = "tplus1")]
+                let (t0, t1) = {
+                    let t = F128::random(rng);
+                    (t, t + F128::ONE)
+                };
+                #[cfg(not(feature = "tplus1"))]
+                let (t0, t1) = {
+                    let t0 = F128::random(rng);
+                    let mut t1 = F128::random(rng);
+                    while t1 == t0 {
+                        t1 = F128::random(rng);
+                    }
+                    (t0, t1)
+                };
                 raw.push((t0, t1));
                 denoms.push(t1 + t0);
             }
         }
+        #[cfg(feature = "tplus1")]
+        let invs = vec![F128::ONE; denoms.len()];
+        #[cfg(not(feature = "tplus1"))]
         let invs = batch_inverse(&denoms);
 
         let mut cursor = 0usize;
@@ -475,6 +504,9 @@ impl GateFamily {
                 denoms.push(t1 + t0);
             }
         }
+        #[cfg(feature = "tplus1")]
+        let invs = vec![F128::ONE; denoms.len()];
+        #[cfg(not(feature = "tplus1"))]
         let invs = batch_inverse(&denoms);
         let mut cursor = 0usize;
         let mut levels = Vec::with_capacity(n);
@@ -549,6 +581,13 @@ pub fn evaluate(coeffs: &[F128], z: &[F128]) -> F128 {
 pub const V09_GATE_SEED_DOMAIN: &[u8] = b"SPARK-SEED-v0.9";
 pub const V09_PUBLIC_GATE_SEED: u64 = 0x51aa735e64a0a5cd;
 pub const V09_N20_K2_I0_3_SETUP_COUNTER: u64 = 0;
+
+#[cfg(feature = "tplus1")]
+pub const V10_TPLUS1_GATE_SEED_DOMAIN: &[u8] = b"SPARK-SEED-v0.10-tplus1";
+#[cfg(feature = "tplus1")]
+pub const V10_TPLUS1_PUBLIC_GATE_SEED: u64 = 0x50643f649c978b38;
+#[cfg(feature = "tplus1")]
+pub const V10_TPLUS1_N20_K2_I0_3_SETUP_COUNTER: u64 = 0;
 
 #[cfg(test)]
 mod tests {
@@ -659,6 +698,48 @@ mod tests {
 
         l2[0].1 = l2[0].0;
         assert!(!c3_is_mds_from_raw(k, &l0, &l1, &l2));
+    }
+
+    #[cfg(feature = "tplus1")]
+    #[test]
+    fn brief18q_tplus1_public_seed_derivation_is_pinned() {
+        let h = blake3::hash(V10_TPLUS1_GATE_SEED_DOMAIN);
+        let mut b = [0u8; 8];
+        b.copy_from_slice(&h.as_bytes()[..8]);
+        assert_eq!(u64::from_le_bytes(b), V10_TPLUS1_PUBLIC_GATE_SEED);
+    }
+
+    #[cfg(feature = "tplus1")]
+    #[test]
+    #[ignore = "exhaustive C(32,8) tplus1 checked setup; run in release mode"]
+    fn brief18q_tplus1_public_seed_and_c3_setup_pass() {
+        let cs = GateFamily::from_seed_checked_i0_3(20, 2, V10_TPLUS1_PUBLIC_GATE_SEED);
+        assert_eq!(cs.counter, V10_TPLUS1_N20_K2_I0_3_SETUP_COUNTER);
+        assert_eq!(cs.family.n, 20);
+        assert_eq!(cs.family.k, 2);
+    }
+
+    #[cfg(feature = "tplus1")]
+    #[test]
+    #[ignore = "full n=20 tplus1 endpoint collision audit"]
+    fn brief18q_tplus1_no_endpoint_collisions_n20() {
+        let n = 20usize;
+        let k = 2usize;
+        let seed = V10_TPLUS1_PUBLIC_GATE_SEED;
+        let ctr = V10_TPLUS1_N20_K2_I0_3_SETUP_COUNTER;
+        let total_gates: usize = (0..n).map(|level| 1usize << (k + level)).sum();
+        let mut endpoints = Vec::with_capacity(2 * total_gates);
+        for level in 0..n {
+            let key = derive_gate_level_key(seed, ctr, level);
+            for q in 0..(1usize << (k + level)) {
+                let (t0, t1) = derive_raw_gate_from_level_key(&key, q);
+                assert_eq!(t1, t0 + F128::ONE);
+                endpoints.push(t0.0);
+                endpoints.push(t1.0);
+            }
+        }
+        endpoints.sort_unstable();
+        assert!(endpoints.windows(2).all(|w| w[0] != w[1]));
     }
 
     #[test]

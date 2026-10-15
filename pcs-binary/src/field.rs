@@ -47,6 +47,8 @@ impl F128 {
 
     /// a^(2^128-2)
     pub fn inv(self) -> Self {
+        #[cfg(feature = "brief18t_instrument")]
+        crate::instrument::inc_inv();
         assert!(self != Self::ZERO, "inverse of zero");
         self.pow(u128::MAX - 1)
     }
@@ -194,6 +196,8 @@ impl Mul for F128 {
     type Output = Self;
     #[inline(always)]
     fn mul(self, rhs: Self) -> Self {
+        #[cfg(feature = "brief18t_instrument")]
+        crate::instrument::inc_mul();
         self.mul_impl(rhs)
     }
 }

@@ -4,6 +4,7 @@ pub mod extfield;
 pub mod field;
 pub mod fold;
 pub mod gates;
+pub mod instrument;
 pub mod merkle;
 pub mod merkle_v05;
 pub mod protocol;
@@ -12,4 +13,6 @@ pub mod security;
 
 pub mod protocol_batch_v12;
 pub mod protocol_sparse_v06;
+pub mod protocol_sparse_v10;
 pub mod transcript_v09;
+pub mod transcript_v10;
